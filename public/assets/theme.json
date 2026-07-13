@@ -1,0 +1,27 @@
+{
+  "name": "Stardance Default",
+  "colors": {
+    "background": "#0a0a0f",
+    "board": {
+      "light": "#e8dcc8",
+      "dark": "#7d6b5a"
+    },
+    "highlights": {
+      "move": "rgba(255, 215, 0, 0.35)",
+      "capture": "rgba(255, 60, 60, 0.45)",
+      "check": "rgba(255, 50, 50, 0.6)",
+      "lastMove": "rgba(255, 255, 100, 0.3)",
+      "selected": "rgba(100, 200, 255, 0.4)"
+    },
+    "pieces": {
+      "whiteStroke": "#1a1a2e",
+      "blackStroke": "#0a0a0f"
+    },
+    "ui": {
+      "primary": "#ffd700",
+      "secondary": "#00d4ff",
+      "text": "#f0eae0",
+      "textDim": "#8b7d6b"
+    }
+  }
+}

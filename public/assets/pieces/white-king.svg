@@ -1,0 +1,32 @@
+<svg viewBox="0 0 450 450" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="wkBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="40%" style="stop-color:#f0ebdf;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e8e0d0;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="wkCross" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffd700;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#b8860b;stop-opacity:1" />
+    </linearGradient>
+    <filter id="wkShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#0a0a0f" flood-opacity="0.4"/>
+    </filter>
+    <filter id="wkGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#wkShadow)">
+    <path d="M225 45 C225 45 260 85 255 140 L255 270 C255 330 195 330 195 270 L195 140 C190 85 225 45 225 45 Z" fill="url(#wkBody)" stroke="#1a1a2e" stroke-width="8" filter="url(#wkGlow)"/>
+    <path d="M210 100 C210 100 230 110 225 150 C220 110 210 100 210 100 Z" fill="#fff8dc" opacity="0.9"/>
+    <path d="M225 110 L225 190" stroke="url(#wkCross)" stroke-width="14" stroke-linecap="round"/>
+    <path d="M195 110 L195 190" stroke="url(#wkCross)" stroke-width="10" stroke-linecap="round" opacity="0.8"/>
+    <path d="M255 110 L255 190" stroke="url(#wkCross)" stroke-width="10" stroke-linecap="round" opacity="0.8"/>
+    <ellipse cx="225" cy="220" rx="58" ry="20" fill="url(#wkCross)" opacity="0.9"/>
+    <ellipse cx="225" cy="220" rx="45" ry="14" fill="#fff8dc" opacity="0.5"/>
+    <path d="M165 220 L175 320 L275 320 L285 220 Z" fill="url(#wkBody)" stroke="#1a1a2e" stroke-width="8"/>
+    <ellipse cx="225" cy="335" rx="85" ry="20" fill="url(#wkCross)" opacity="0.9"/>
+    <ellipse cx="225" cy="335" rx="70" ry="14" fill="#fff8dc" opacity="0.5"/>
+  </g>
+</svg>

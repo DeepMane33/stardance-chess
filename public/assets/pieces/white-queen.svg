@@ -1,0 +1,38 @@
+<svg viewBox="0 0 450 450" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="wqBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="40%" style="stop-color:#f0ebdf;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e8e0d0;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="wqBase" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffd700;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#b8860b;stop-opacity:0.9" />
+    </linearGradient>
+    <filter id="wqShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#0a0a0f" flood-opacity="0.4"/>
+    </filter>
+    <filter id="wqGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#wqShadow)">
+    <path d="M225 45 C225 45 255 80 252 130 L248 115 L225 95 L202 115 L198 130 C195 80 225 45 225 45 Z" fill="url(#wqBody)" stroke="#1a1a2e" stroke-width="8" filter="url(#wqGlow)"/>
+    <path d="M225 115 L225 210" stroke="url(#wqBase)" stroke-width="14" stroke-linecap="round"/>
+    <path d="M205 130 Q225 110 245 130" stroke="url(#wqBase)" stroke-width="12" stroke-linecap="round" fill="none" opacity="0.8"/>
+    <path d="M205 155 Q225 135 245 155" stroke="url(#wqBase)" stroke-width="10" stroke-linecap="round" fill="none" opacity="0.6"/>
+    <ellipse cx="225" cy="225" rx="68" ry="22" fill="url(#wqBase)" opacity="0.8"/>
+    <ellipse cx="225" cy="225" rx="54" ry="16" fill="#fff8dc" opacity="0.5"/>
+    <g transform="translate(225, 225)">
+      <path d="M0 -120 L-10 -85 L10 -85 Z" fill="url(#wqBase)" stroke="#b8860b" stroke-width="3"/>
+      <path d="M-45 -105 L-38 -75 L-52 -75 Z" fill="url(#wqBase)" stroke="#b8860b" stroke-width="3"/>
+      <path d="M45 -105 L38 -75 L52 -75 Z" fill="url(#wqBase)" stroke="#b8860b" stroke-width="3"/>
+      <path d="M-75 -90 L-68 -65 L-82 -65 Z" fill="url(#wqBase)" stroke="#b8860b" stroke-width="3"/>
+      <path d="M75 -90 L68 -65 L82 -65 Z" fill="url(#wqBase)" stroke="#b8860b" stroke-width="3"/>
+    </g>
+    <path d="M160 230 L168 315 L282 315 L290 230 Z" fill="url(#wqBody)" stroke="#1a1a2e" stroke-width="8"/>
+    <ellipse cx="225" cy="330" rx="92" ry="22" fill="url(#wqBase)" opacity="0.8"/>
+    <ellipse cx="225" cy="330" rx="78" ry="16" fill="#fff8dc" opacity="0.5"/>
+  </g>
+</svg>

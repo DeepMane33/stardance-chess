@@ -1,0 +1,29 @@
+<svg viewBox="0 0 450 450" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="wpBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="40%" style="stop-color:#f0ebdf;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e8e0d0;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="wpBase" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffd700;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#b8860b;stop-opacity:0.8" />
+    </linearGradient>
+    <filter id="wpShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#0a0a0f" flood-opacity="0.4"/>
+    </filter>
+    <filter id="wpGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#wpShadow)">
+    <path d="M225 55 C225 55 265 90 260 155 L255 250 C255 315 195 315 195 250 L190 155 C185 90 225 55 225 55 Z" fill="url(#wpBody)" stroke="#1a1a2e" stroke-width="8" filter="url(#wpGlow)"/>
+    <path d="M215 105 C215 105 232 120 225 165 C218 120 215 105 215 105 Z" fill="#fff8dc" opacity="0.8"/>
+    <ellipse cx="225" cy="270" rx="52" ry="18" fill="url(#wpBase)" opacity="0.8"/>
+    <ellipse cx="225" cy="270" rx="40" ry="12" fill="#fff8dc" opacity="0.4"/>
+    <path d="M173 250 L175 325 L275 325 L277 250 Z" fill="url(#wpBody)" stroke="#1a1a2e" stroke-width="8"/>
+    <ellipse cx="225" cy="330" rx="75" ry="20" fill="url(#wpBase)" opacity="0.8"/>
+    <ellipse cx="225" cy="330" rx="62" ry="14" fill="#fff8dc" opacity="0.4"/>
+  </g>
+</svg>

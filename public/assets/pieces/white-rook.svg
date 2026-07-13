@@ -1,0 +1,31 @@
+<svg viewBox="0 0 450 450" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="wrBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="40%" style="stop-color:#f0ebdf;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e8e0d0;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="wrBase" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffd700;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#b8860b;stop-opacity:0.8" />
+    </linearGradient>
+    <filter id="wrShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#0a0a0f" flood-opacity="0.4"/>
+    </filter>
+    <filter id="wrGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#wrShadow)">
+    <rect x="140" y="75" width="170" height="150" rx="10" fill="url(#wrBody)" stroke="#1a1a2e" stroke-width="8" filter="url(#wrGlow)"/>
+    <rect x="162" y="75" width="28" height="35" fill="url(#wrBase)"/>
+    <rect x="260" y="75" width="28" height="35" fill="url(#wrBase)"/>
+    <rect x="120" y="225" width="210" height="25" rx="6" fill="url(#wrBase)" opacity="0.8"/>
+    <rect x="128" y="250" width="194" height="110" fill="url(#wrBody)" stroke="#1a1a2e" stroke-width="8"/>
+    <rect x="140" y="270" width="45" height="60" fill="#1a1a2e" opacity="0.15"/>
+    <rect x="265" y="270" width="45" height="60" fill="#1a1a2e" opacity="0.15"/>
+    <ellipse cx="225" cy="375" rx="92" ry="20" fill="url(#wrBase)" opacity="0.8"/>
+    <ellipse cx="225" cy="375" rx="78" ry="14" fill="#fff8dc" opacity="0.4"/>
+  </g>
+</svg>
