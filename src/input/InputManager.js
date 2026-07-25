@@ -1,12 +1,14 @@
 import { EventBus } from '../utils/EventBus.js'
 import { Square, Piece } from '../core/ChessTypes.js'
+import { CaptureTier, resolveCaptureTier } from '../animation/CaptureAnimations.js'
 
 export class InputManager extends EventBus {
-  constructor(canvas, engine, renderer) {
+  constructor(canvas, engine, renderer, animationManager) {
     super()
     this.canvas = canvas
     this.engine = engine
     this.renderer = renderer
+    this.animationManager = animationManager
     this.selectedSquare = -1
     this.legalMoves = []
     this.promotionPending = null
@@ -111,40 +113,83 @@ export class InputManager extends EventBus {
     this.renderer.pieceRenderer.setLegalMoves([])
   }
 
-  executeMove(from, to, promotionPiece = null) {
+  async executeMove(from, to, promotionPiece = null) {
     if (!promotionPiece) {
       promotionPiece = this.getPromotionPiece(from, to)
     }
 
-    if (promotionPiece) {
-      const result = this.engine.attemptMove(from, to, promotionPiece)
-      if (result.success) {
-        this.clearSelection()
-        this.updateBoardAfterMove(result.move)
-        this.emit('move', { from, to, move: result.move })
+    const pos = this.engine.getPosition()
+    const isCapture = pos.board[to] !== Piece.NONE
+    const piece = pos.board[from]
+    const color = pos.colors[from]
+    const orientation = this.renderer.boardRenderer.boardAppearance.orientation
+
+    // Capture victim info BEFORE engine move changes the board
+    const victimPiece = isCapture ? pos.board[to] : 0
+    const victimColor = isCapture ? pos.colors[to] : 0
+
+    // Clear any leftover ghost pieces from previous animations
+    this.renderer.pieceRenderer.ghostPiece = null
+    this.renderer.pieceRenderer.victimGhostPiece = null
+
+    // Execute engine move first
+    let result
+    if (promotionPiece && piece === Piece.PAWN) {
+      const isPromoRank = (color === 1 && to >= 56) || (color === 2 && to <= 7)
+      if (isPromoRank) {
+        result = this.engine.attemptMove(from, to, promotionPiece)
+      } else {
+        result = this.engine.attemptMove(from, to, null)
       }
+    } else {
+      result = this.engine.attemptMove(from, to, promotionPiece)
+    }
+
+    if (!result.success) {
+      this.clearSelection()
       return
     }
 
-    const result = this.engine.attemptMove(from, to, null)
-
-    if (result.success) {
-      if (result.promotion && result.pending) {
-        this.promotionPending = { from, to }
-        this.emit('promotion', result.pending)
-        return
-      }
-
-      this.clearSelection()
-      this.updateBoardAfterMove(result.move)
-      this.emit('move', { from, to, move: result.move })
+    // Handle promotion dialog
+    if (result.promotion && result.pending) {
+      this.promotionPending = { from, to }
+      this.emit('promotion', result.pending)
+      return
     }
+
+    // Update board state immediately
+    this.clearSelection()
+    this.updateBoardAfterMove(result.move)
+
+    // Animate as cosmetic overlay (engine state already committed)
+    let animationPromise
+    if (isCapture) {
+      animationPromise = this.animationManager.animateCapture({
+        from, to, piece, color, orientation, isCapture: true,
+        victimPiece, victimColor,
+        onImpact: null
+      }).catch(() => {})
+    } else {
+      animationPromise = this.animationManager.animateMove({
+        from, to, piece, color, orientation, duration: 0.28
+      }).catch(() => {})
+    }
+    this.currentAnimation = animationPromise
+    this.emit('move', { from, to, move: result.move, animationPromise })
   }
 
   resolvePromotion(pieceChar) {
     if (!this.promotionPending) return
     const { from, to } = this.promotionPending
     this.promotionPending = null
+
+    const pos = this.engine.getPosition()
+    const piece = pos.board[from]
+    const color = pos.colors[from]
+    const isCapture = pos.board[to] !== Piece.NONE
+    const victimPiece = isCapture ? pos.board[to] : 0
+    const victimColor = isCapture ? pos.colors[to] : 0
+    const orientation = this.renderer.boardRenderer.boardAppearance.orientation
 
     const pieceMap = { q: Piece.QUEEN, r: Piece.ROOK, b: Piece.BISHOP, n: Piece.KNIGHT }
     const promotionPiece = pieceMap[pieceChar] || Piece.QUEEN
@@ -153,7 +198,21 @@ export class InputManager extends EventBus {
     if (result.success) {
       this.clearSelection()
       this.updateBoardAfterMove(result.move)
-      this.emit('move', { from, to, move: result.move })
+
+      let animationPromise
+      if (isCapture) {
+        animationPromise = this.animationManager.animateCapture({
+          from, to, piece, color, orientation, isCapture: true,
+          victimPiece, victimColor,
+          onImpact: null
+        }).catch(() => {})
+      } else {
+        animationPromise = this.animationManager.animateMove({
+          from, to, piece, color, orientation, duration: 0.28
+        }).catch(() => {})
+      }
+      this.currentAnimation = animationPromise
+      this.emit('move', { from, to, move: result.move, animationPromise })
     }
   }
 

@@ -19,6 +19,8 @@ export class PieceRenderer {
     this.lastMoveSquares = []
     this.checkSquare = null
     this.hoverSquare = null
+    this.ghostPiece = null
+    this.victimGhostPiece = null
     this.loadAllPieces()
   }
 
@@ -41,6 +43,7 @@ export class PieceRenderer {
   setLastMove(from, to) { this.lastMoveSquares = [from, to] }
   setCheck(sq) { this.checkSquare = sq }
   setHover(sq) { this.hoverSquare = sq }
+  setEngineRef(engine) { this.engine = engine }
 
   render(engine, orientation = 1) {
     const position = engine.getPosition()

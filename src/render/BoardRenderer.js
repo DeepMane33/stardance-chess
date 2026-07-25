@@ -12,11 +12,27 @@ export class BoardRenderer {
     this.legalMoves = []
     this.checkSquare = -1
     this.hoverSquare = -1
+    this.captureHighlight = { from: -1, to: -1, fromAlpha: 0, toAlpha: 0, active: false }
   }
 
   setLastMove(from, to) {
     this.lastMoveFrom = from
     this.lastMoveTo = to
+  }
+
+  triggerCaptureHighlight(from, to) {
+    this.captureHighlight = { from, to, fromAlpha: 1, toAlpha: 1, active: true }
+  }
+
+  updateCaptureHighlight(fromAlpha, toAlpha) {
+    this.captureHighlight.fromAlpha = fromAlpha
+    this.captureHighlight.toAlpha = toAlpha
+  }
+
+  clearCaptureHighlight() {
+    this.captureHighlight.active = false
+    this.captureHighlight.fromAlpha = 0
+    this.captureHighlight.toAlpha = 0
   }
 
   setSelected(sq) { this.selectedSquare = sq }
@@ -44,9 +60,15 @@ export class BoardRenderer {
       }
     }
 
-    // Draw last move highlight
-    this.drawSquareHighlight(ctx, this.lastMoveFrom, 'rgba(255, 255, 0, 0.4)', orientation)
-    this.drawSquareHighlight(ctx, this.lastMoveTo, 'rgba(255, 255, 0, 0.4)', orientation)
+    // Draw capture highlight (SOLID GREEN RECTANGLES) - takes priority
+    if (this.captureHighlight.active && (this.captureHighlight.fromAlpha > 0 || this.captureHighlight.toAlpha > 0)) {
+      this.drawSolidGreenSquare(ctx, this.captureHighlight.from, this.captureHighlight.fromAlpha, orientation)
+      this.drawSolidGreenSquare(ctx, this.captureHighlight.to, this.captureHighlight.toAlpha, orientation)
+    } else {
+      // Draw last move highlight (yellow)
+      this.drawSquareHighlight(ctx, this.lastMoveFrom, 'rgba(255, 255, 0, 0.4)', orientation)
+      this.drawSquareHighlight(ctx, this.lastMoveTo, 'rgba(255, 255, 0, 0.4)', orientation)
+    }
 
     // Draw selected square highlight
     if (this.selectedSquare >= 0) {
@@ -70,6 +92,21 @@ export class BoardRenderer {
 
     // Draw coordinates
     this.drawCoordinates(ctx, orientation)
+  }
+
+  drawSolidGreenSquare(ctx, square, alpha, orientation) {
+    if (square < 0) return
+    const { squareSize, boardOffsetX, boardOffsetY } = this.renderer
+    const { file, rank } = this.renderer.squareToCoord(square, orientation)
+
+    // Solid bright green rectangle covering the full square
+    ctx.fillStyle = `rgba(0, 220, 50, ${alpha * 0.65})`
+    ctx.fillRect(
+      boardOffsetX + file * squareSize,
+      boardOffsetY + rank * squareSize,
+      squareSize,
+      squareSize
+    )
   }
 
   drawSquareHighlight(ctx, square, color, orientation) {
@@ -109,15 +146,12 @@ export class BoardRenderer {
     const cx = boardOffsetX + file * squareSize + squareSize / 2
     const cy = boardOffsetY + rank * squareSize + squareSize / 2
 
-    // Check if there's a piece on this square (capture move)
     const isCapture = this.isSquareOccupied(square)
 
     if (isCapture) {
-      // Draw corner triangles for capture
       const cornerSize = squareSize * 0.25
       ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
 
-      // Top-left corner
       ctx.beginPath()
       ctx.moveTo(boardOffsetX + file * squareSize, boardOffsetY + rank * squareSize)
       ctx.lineTo(boardOffsetX + file * squareSize + cornerSize, boardOffsetY + rank * squareSize)
@@ -125,7 +159,6 @@ export class BoardRenderer {
       ctx.closePath()
       ctx.fill()
 
-      // Top-right corner
       ctx.beginPath()
       ctx.moveTo(boardOffsetX + (file + 1) * squareSize, boardOffsetY + rank * squareSize)
       ctx.lineTo(boardOffsetX + (file + 1) * squareSize - cornerSize, boardOffsetY + rank * squareSize)
@@ -133,7 +166,6 @@ export class BoardRenderer {
       ctx.closePath()
       ctx.fill()
 
-      // Bottom-left corner
       ctx.beginPath()
       ctx.moveTo(boardOffsetX + file * squareSize, boardOffsetY + (rank + 1) * squareSize)
       ctx.lineTo(boardOffsetX + file * squareSize + cornerSize, boardOffsetY + (rank + 1) * squareSize)
@@ -141,7 +173,6 @@ export class BoardRenderer {
       ctx.closePath()
       ctx.fill()
 
-      // Bottom-right corner
       ctx.beginPath()
       ctx.moveTo(boardOffsetX + (file + 1) * squareSize, boardOffsetY + (rank + 1) * squareSize)
       ctx.lineTo(boardOffsetX + (file + 1) * squareSize - cornerSize, boardOffsetY + (rank + 1) * squareSize)
@@ -149,7 +180,6 @@ export class BoardRenderer {
       ctx.closePath()
       ctx.fill()
     } else {
-      // Draw dot for empty square move
       ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
       ctx.beginPath()
       ctx.arc(cx, cy, squareSize * 0.15, 0, Math.PI * 2)
@@ -177,13 +207,11 @@ export class BoardRenderer {
       const fileChar = String.fromCharCode(97 + i)
       const rankChar = String(8 - i)
 
-      // File labels (bottom)
       const fileX = boardOffsetX + i * squareSize + squareSize * 0.88
       const fileY = boardOffsetY + 8 * squareSize - squareSize * 0.12
       ctx.fillStyle = (i % 2 === 0) ? this.darkColor : this.lightColor
       ctx.fillText(orientation === -1 ? String.fromCharCode(104 - i) : fileChar, fileX, fileY)
 
-      // Rank labels (left)
       const rankX = boardOffsetX + squareSize * 0.12
       const rankY = boardOffsetY + i * squareSize + squareSize * 0.12
       ctx.fillStyle = (i % 2 === 0) ? this.lightColor : this.darkColor

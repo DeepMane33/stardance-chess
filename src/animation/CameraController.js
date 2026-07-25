@@ -12,16 +12,15 @@ export class CameraController {
     this.rotation = 0;
     this.targetRotation = 0;
     this.timeScale = 1;
+    this._externalTimeScale = 1;
     
     this.shake = {
-      intensity: 0,
-      duration: 0,
-      elapsed: 0,
-      frequency: 60,
-      decay: 0.95,
+      trauma: 0,
+      traumaDecay: 0.85,
+      seed: Math.random() * 10000,
       offset: { x: 0, y: 0 },
       rotation: 0,
-      trauma: 0
+      directional: null
     };
     
     this.freeze = {
@@ -60,39 +59,48 @@ export class CameraController {
   }
 
   update(dt) {
-    const scaledDt = dt * this.timeScale;
+    const scaledDt = dt * this._externalTimeScale;
     
-    this.position.x += (this.targetPosition.x - this.position.x) * this.smoothness;
-    this.position.y += (this.targetPosition.y - this.position.y) * this.smoothness;
-    
-    this.zoom += (this.targetZoom - this.zoom) * this.zoomSmoothness;
-    this.rotation += (this.targetRotation - this.rotation) * this.rotationSmoothness;
+    const dtFactor = Math.min(dt * 60, 2);
+    this.position.x += (this.targetPosition.x - this.position.x) * this.smoothness * dtFactor;
+    this.position.y += (this.targetPosition.y - this.position.y) * this.smoothness * dtFactor;
+
+    this.zoom += (this.targetZoom - this.zoom) * this.zoomSmoothness * dtFactor;
+    this.rotation += (this.targetRotation - this.rotation) * this.rotationSmoothness * dtFactor;
     
     this.zoom = Math.max(this.zoomConstraints.min, Math.min(this.zoomConstraints.max, this.zoom));
     
-    if (this.shake.intensity > 0) {
-      this.shake.elapsed += scaledDt * 1000;
-      const progress = this.shake.elapsed / this.shake.duration;
+    if (this.shake.trauma > 0.001) {
+      this.shake.trauma = Math.max(0, this.shake.trauma - this.shake.traumaDecay * scaledDt);
       
-      if (progress >= 1) {
-        this.shake.intensity = 0;
+      const traumaSq = this.shake.trauma * this.shake.trauma;
+      const maxOffset = 18 * traumaSq;
+      const maxRotation = 0.012 * traumaSq;
+      
+      const time = this.shake.seed + performance.now() * 0.01;
+      const nx = this.noise1D(time);
+      const ny = this.noise1D(time + 317);
+      const nr = this.noise1D(time + 719);
+      
+      this.shake.offset.x = nx * maxOffset;
+      this.shake.offset.y = ny * maxOffset;
+      this.shake.rotation = nr * maxRotation;
+      
+      if (this.shake.directional) {
+        const da = this.shake.directional.angle;
+        const ds = this.shake.directional.strength * traumaSq * 12;
+        this.shake.offset.x += Math.cos(da) * ds;
+        this.shake.offset.y += Math.sin(da) * ds;
+      }
+      
+      if (this.shake.trauma <= 0.001) {
         this.shake.offset = { x: 0, y: 0 };
         this.shake.rotation = 0;
+        this.shake.directional = null;
         if (this.onShakeComplete) {
           this.onShakeComplete();
           this.onShakeComplete = null;
         }
-      } else {
-        const decay = Math.pow(this.shake.decay, progress * 10);
-        const currentIntensity = this.shake.intensity * decay;
-        
-        const angle1 = this.shake.elapsed * this.shake.frequency * 0.01;
-        const angle2 = this.shake.elapsed * this.shake.frequency * 0.013;
-        const angle3 = this.shake.elapsed * this.shake.frequency * 0.007;
-        
-        this.shake.offset.x = (Math.sin(angle1) * 0.7 + Math.sin(angle2) * 0.3) * currentIntensity;
-        this.shake.offset.y = (Math.cos(angle1) * 0.5 + Math.cos(angle3) * 0.5) * currentIntensity;
-        this.shake.rotation = (Math.sin(angle2) * 0.3) * currentIntensity * 0.001;
       }
     }
     
@@ -114,9 +122,9 @@ export class CameraController {
       
       if (this.cinematicTarget) {
         const targetPos = this.getSquareCenter(this.cinematicTarget);
-        this.targetPosition.x = targetPos.x * (1 - eased) + this.position.x * eased;
-        this.targetPosition.y = targetPos.y * (1 - eased) + this.position.y * eased;
-        this.targetZoom = 1 + (this.cinematicZoom - 1) * (1 - eased);
+        this.targetPosition.x = this.position.x * (1 - eased) + targetPos.x * eased;
+        this.targetPosition.y = this.position.y * (1 - eased) + targetPos.y * eased;
+        this.targetZoom = 1 + (this.cinematicZoom - 1) * eased;
       }
       
       if (progress >= 1) {
@@ -173,12 +181,16 @@ export class CameraController {
   }
 
   shakeCamera(intensity, duration = 500, options = {}) {
-    this.shake.intensity = intensity;
-    this.shake.duration = duration;
-    this.shake.elapsed = 0;
-    this.shake.frequency = options.frequency || 60;
-    this.shake.decay = options.decay || 0.95;
-    this.shake.trauma = options.trauma || 0;
+    this.shake.trauma = Math.min(1, this.shake.trauma + intensity * 0.25);
+    this.shake.traumaDecay = options.decay ? (1 - options.decay) * 0.5 + 0.5 : 0.85;
+    this.shake.directional = options.directional || null;
+    return new Promise(resolve => { this.onShakeComplete = resolve; });
+  }
+
+  directionalShake(intensity, angle, duration = 250) {
+    this.shake.trauma = Math.min(1, this.shake.trauma + intensity * 0.3);
+    this.shake.traumaDecay = 0.9;
+    this.shake.directional = { angle, strength: 0.7 };
     return new Promise(resolve => { this.onShakeComplete = resolve; });
   }
 
@@ -222,8 +234,12 @@ export class CameraController {
     const targetPos = this.getSquareCenter(square);
     this.animatePosition(targetPos.x, targetPos.y, duration);
     return new Promise(resolve => {
+      const startTime = performance.now();
+      const timeout = duration * 3;
       const check = () => {
         if (Math.abs(this.position.x - targetPos.x) < 1 && Math.abs(this.position.y - targetPos.y) < 1) {
+          resolve();
+        } else if (performance.now() - startTime > timeout) {
           resolve();
         } else {
           requestAnimationFrame(check);
@@ -247,14 +263,14 @@ export class CameraController {
   }
 
   setTimeScale(scale, duration = 0) {
-    this.timeScale = Math.max(0.01, Math.min(2, scale));
-    if (duration > 0) {
-      return new Promise(resolve => {
-        setTimeout(() => {
-          resolve();
-        }, duration);
-      });
-    }
+    this._externalTimeScale = Math.max(0.01, Math.min(5, scale));
+    return new Promise(resolve => {
+      if (duration > 0) {
+        setTimeout(() => resolve(), duration);
+      } else {
+        resolve();
+      }
+    });
   }
 
   getTransform() {
@@ -266,9 +282,14 @@ export class CameraController {
     };
   }
 
-  isShaking() { return this.shake.intensity > 0; }
+  isShaking() { return this.shake.trauma > 0.001; }
   isFrozen() { return this.freeze.active; }
   isCinematic() { return this.cinematicMode; }
+
+  noise1D(x) {
+    x = Math.sin(x * 12.9898) * 43758.5453;
+    return (x - Math.floor(x)) * 2 - 1;
+  }
 
   reset() {
     this.position = { x: 0, y: 0 };
@@ -277,7 +298,7 @@ export class CameraController {
     this.targetZoom = 1;
     this.rotation = 0;
     this.targetRotation = 0;
-    this.shake = { intensity: 0, duration: 0, elapsed: 0, frequency: 60, decay: 0.95, offset: { x: 0, y: 0 }, rotation: 0, trauma: 0 };
+    this.shake = { trauma: 0, traumaDecay: 0.85, seed: Math.random() * 10000, offset: { x: 0, y: 0 }, rotation: 0, directional: null };
     this.freeze = { active: false, duration: 0, elapsed: 0, intensity: 0 };
     this.cinematicMode = false;
     this.focusTracking = false;

@@ -128,6 +128,7 @@ export class UIManager {
   showPromotion(callback) {
     const modal = this.screens.promotion
     if (!modal) return
+    this.hidePromotion()
     modal.classList.add('active')
 
     const pieces = modal.querySelectorAll('.promotion-piece')
@@ -137,11 +138,57 @@ export class UIManager {
       modal.classList.remove('active')
       callback(piece)
     }
+    this._promotionHandler = handler
     pieces.forEach(p => p.addEventListener('click', handler))
   }
 
   hidePromotion() {
+    const modal = this.screens.promotion
+    if (modal && this._promotionHandler) {
+      modal.querySelectorAll('.promotion-piece').forEach(p => {
+        p.removeEventListener('click', this._promotionHandler)
+      })
+      this._promotionHandler = null
+    }
     this.hideScreen('promotion')
+  }
+
+  updateElo(rating) {
+    const el = document.getElementById('menu-elo')
+    if (el) el.textContent = rating
+  }
+
+  updateReplayInfo(match) {
+    const el = document.getElementById('replay-info')
+    if (el) {
+      el.textContent = `${match.mode === 'bot' ? 'vs Bot' : 'vs Friend'} - ${match.result}`
+    }
+  }
+
+  updateReplayProgress(index, total) {
+    const el = document.getElementById('replay-progress')
+    if (el) el.textContent = `${index + 1} / ${total}`
+  }
+
+  updateClock(side, time) {
+    const el = document.getElementById(`clock-${side}`)
+    if (el) {
+      const minutes = Math.floor(time / 60)
+      const seconds = Math.floor(time % 60)
+      el.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`
+    }
+  }
+
+  updateCaptured(side, count) {
+    const el = document.querySelector(`.captured-${side}`)
+    if (el) el.textContent = count > 0 ? `+${count}` : ''
+  }
+
+  updateTurn(side) {
+    const whiteBar = document.querySelector('.player-bar.white')
+    const blackBar = document.querySelector('.player-bar.black')
+    if (whiteBar) whiteBar.classList.toggle('active', side === 'white')
+    if (blackBar) blackBar.classList.toggle('active', side === 'black')
   }
 
   showShare(fen) {
@@ -223,6 +270,8 @@ export class UIManager {
 
     const DIFFICULTY_NAMES = { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced', expert: 'Expert' }
 
+    const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+
     list.innerHTML = matches.map(m => {
       const date = new Date(m.date)
       const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -234,17 +283,17 @@ export class UIManager {
       const changeClass = change > 0 ? 'positive' : change < 0 ? 'negative' : 'draw'
       const moveCount = m.moves ? Math.ceil(m.moves.length / 2) : 0
 
-      return `<div class="history-item" data-match-id="${m.id}">
-        <div class="history-result-badge ${m.result}">${badge}</div>
+      return `<div class="history-item" data-match-id="${esc(m.id)}">
+        <div class="history-result-badge ${esc(m.result)}">${badge}</div>
         <div class="history-info">
-          <div class="history-mode">${modeLabel}</div>
-          <div class="history-detail">${resultLabel} &middot; ${moveCount} moves</div>
+          <div class="history-mode">${esc(modeLabel)}</div>
+          <div class="history-detail">${esc(resultLabel)} &middot; ${moveCount} moves</div>
         </div>
         <div class="history-rating">
           <div class="history-rating-change ${changeClass}">${changeStr}</div>
-          <div class="history-date">${dateStr}</div>
+          <div class="history-date">${esc(dateStr)}</div>
         </div>
-        <button class="history-item-replay" data-replay-id="${m.id}" title="Replay">&#9654;</button>
+        <button class="history-item-replay" data-replay-id="${esc(m.id)}" title="Replay">&#9654;</button>
       </div>`
     }).join('')
   }

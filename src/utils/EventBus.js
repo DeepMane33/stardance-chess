@@ -19,7 +19,8 @@ export class EventBus {
   emit(event, payload) {
     const callbacks = this.events.get(event)
     if (!callbacks) return
-    callbacks.forEach(cb => {
+    const copy = callbacks.slice()
+    copy.forEach(cb => {
       try { cb(payload) } catch (e) { console.error(`Event error [${event}]:`, e) }
     })
   }

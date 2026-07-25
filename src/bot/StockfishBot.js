@@ -35,41 +35,71 @@ export class StockfishBot {
   constructor() {
     this.worker = null
     this.ready = false
-    this.readyPromise = null
     this.pendingResolve = null
+    this.onMessageHandler = null
+    this.commandQueue = []
   }
 
   async init() {
-    this.worker = new Worker('/stockfish.js')
+    // Use the worker-based stockfish from public folder
+    this.worker = new Worker('/stockfish-worker.js')
 
-    this.readyPromise = new Promise((resolve) => {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Stockfish worker init timeout')), 10000)
+
+      let gotUciOk = false
+
       this.worker.onmessage = (e) => {
-        const msg = typeof e.data === 'string' ? e.data : ''
+        const msg = e.data
+        if (typeof msg !== 'string') return
         if (msg === 'uciok') {
+          gotUciOk = true
+          // Send isready to confirm engine is fully initialized
+          this.worker.postMessage('isready')
+        } else if (msg === 'readyok' && gotUciOk) {
+          clearTimeout(timeout)
           this.ready = true
+          // Process queued commands
+          this.commandQueue.forEach(cmd => this.worker.postMessage(cmd))
+          this.commandQueue = []
           resolve()
-        }
-        if (this.pendingResolve && msg.startsWith('bestmove')) {
-          const moveStr = msg.split(' ')[1]
-          this.pendingResolve(moveStr)
-          this.pendingResolve = null
+        } else if (msg.startsWith('bestmove')) {
+          if (this.pendingResolve) {
+            const moveStr = msg.split(' ')[1]
+            this.pendingResolve(moveStr)
+            this.pendingResolve = null
+          }
+        } else if (this.onMessageHandler) {
+          this.onMessageHandler(msg)
         }
       }
-    })
 
-    this.worker.postMessage('uci')
-    await this.readyPromise
-    this.worker.postMessage('isready')
+      this.worker.onerror = (err) => {
+        clearTimeout(timeout)
+        reject(err)
+      }
+
+      // Start UCI handshake
+      this.worker.postMessage('uci')
+    })
+  }
+
+  sendCommand(cmd) {
+    if (this.ready) {
+      this.worker.postMessage(cmd)
+    } else {
+      this.commandQueue.push(cmd)
+    }
   }
 
   setSkillLevel(elo) {
     const config = getSkillConfig(elo)
-    this.worker.postMessage(`setoption name Skill Level value ${config.skill}`)
+    this.sendCommand(`setoption name Skill Level value ${config.skill}`)
     return config
   }
 
   async getBestMove(fen, elo = 1200) {
-    if (!this.ready) await this.readyPromise
+    if (!this.ready) await this.init()
 
     const config = this.setSkillLevel(elo)
     const jitter = Math.floor((Math.random() - 0.5) * 400)
@@ -77,8 +107,23 @@ export class StockfishBot {
 
     return new Promise((resolve) => {
       this.pendingResolve = resolve
-      this.worker.postMessage(`position fen ${fen}`)
-      this.worker.postMessage(`go movetime ${movetime}`)
+      this.sendCommand(`position fen ${fen}`)
+      this.sendCommand(`go movetime ${movetime}`)
+
+      const timeout = setTimeout(() => {
+        if (this.pendingResolve) {
+          this.stop()
+          this.pendingResolve = null
+          console.warn('Stockfish move timeout - returning null')
+          resolve(null)
+        }
+      }, movetime + 3000)
+
+      const origResolve = resolve
+      this.pendingResolve = (val) => {
+        clearTimeout(timeout)
+        origResolve(val)
+      }
     })
   }
 
@@ -89,10 +134,15 @@ export class StockfishBot {
   }
 
   destroy() {
+    if (this.pendingResolve) {
+      this.pendingResolve(null)
+      this.pendingResolve = null
+    }
     if (this.worker) {
       this.worker.postMessage('quit')
       this.worker.terminate()
       this.worker = null
     }
+    this.ready = false
   }
 }

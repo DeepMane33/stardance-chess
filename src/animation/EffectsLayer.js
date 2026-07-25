@@ -1,3 +1,5 @@
+import { timeManager } from './TimeManager.js'
+
 export class EffectsLayer {
   constructor(boardCanvas, centerX, centerY) {
     this.boardCanvas = boardCanvas
@@ -18,13 +20,16 @@ export class EffectsLayer {
     this.height = boardCanvas.height
     this.dpr = window.devicePixelRatio || 1
     
-    boardCanvas.parentElement.appendChild(this.canvas)
+    if (boardCanvas.parentElement) {
+      boardCanvas.parentElement.appendChild(this.canvas)
+    }
     
     this.particles = []
     this.particleProgress = 0
     this.alpha = 1
     this.comboIntensity = 1
     this.customParticleSets = []
+    this._lastTime = 0
   }
 
   setComboIntensity(intensity) {
@@ -44,13 +49,14 @@ export class EffectsLayer {
         trail: []
       })),
       duration,
-      startTime: performance.now() / 1000,
+      startTime: timeManager.getScaledTime(),
       elapsed: 0
     })
   }
 
   update(dt) {
-    const now = performance.now() / 1000
+    const scaledDt = timeManager.getScaledDelta()
+    const now = timeManager.getScaledTime()
     
     for (let i = this.customParticleSets.length - 1; i >= 0; i--) {
       const set = this.customParticleSets[i]
@@ -66,7 +72,7 @@ export class EffectsLayer {
       for (const p of set.particles) {
         if (p.delay > set.elapsed) continue
         
-        p.age += dt
+        p.age += scaledDt
         if (p.age >= p.maxLife) continue
         
         p.trail.push({ x: p.x, y: p.y })
@@ -74,9 +80,9 @@ export class EffectsLayer {
           p.trail.shift()
         }
         
-        p.vy += (p.gravity || 0) * dt
-        p.x += p.vx * dt
-        p.y += p.vy * dt
+        p.vy += (p.gravity || 0) * scaledDt
+        p.x += p.vx * scaledDt
+        p.y += p.vy * scaledDt
         p.life = 1 - (p.age / p.maxLife)
       }
     }
@@ -102,7 +108,7 @@ export class EffectsLayer {
           for (let i = 1; i < p.trail.length; i++) {
             this.ctx.lineTo(p.trail[i].x, p.trail[i].y)
           }
-          this.ctx.strokeStyle = p.color.replace(/[\d.]+\)$/, `${alpha * 0.3})`)
+          this.ctx.strokeStyle = p.color.startsWith('rgba') ? p.color.replace(/[\d.]+\)$/, `${alpha * 0.3})`) : p.color
           this.ctx.lineWidth = Math.max(1, p.radius * 0.5)
           this.ctx.stroke()
         }

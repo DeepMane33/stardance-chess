@@ -50,6 +50,14 @@ export class MatchHistory {
 
   getMatches(filter = null) {
     if (!filter) return this.matches
+    if (typeof filter === 'string') {
+      return this.matches.filter(m => {
+        if (filter === 'bot' || filter === 'friend') return m.mode === filter
+        if (filter === 'win') return m.result === 'win'
+        if (filter === 'loss') return m.result === 'loss'
+        return true
+      })
+    }
     return this.matches.filter(m => {
       if (filter.mode && m.mode !== filter.mode) return false
       if (filter.result && m.result !== filter.result) return false

@@ -89,6 +89,7 @@ export function parseFEN(fen) {
       case 'r': piece = Piece.ROOK; break
       case 'q': piece = Piece.QUEEN; break
       case 'k': piece = Piece.KING; break
+      default: piece = Piece.NONE; break
     }
     const sq = rank * 8 + file
     board[sq] = piece

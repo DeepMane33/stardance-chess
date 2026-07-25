@@ -1,153 +1,238 @@
-import { MathUtils } from '../utils/MathUtils.js'
-import { Colors } from '../utils/ColorPalette.js'
-
-export class ParticleSystem {
-  constructor(width, height) {
-    this.width = width
-    this.height = height
-    this.particles = []
-    this.maxParticles = 200
-    this.active = false
-    this.emitterX = width / 2
-    this.emitterY = height / 2
-  }
-
-  emit(x, y, options = {}) {
-    this.emitterX = x
-    this.emitterY = y
-    this.active = true
-
-    const count = options.count || 40
-    const colors = options.colors || Colors.effects.capture
-    const pieceType = options.pieceType || 'pawn'
-
-    for (let i = 0; i < count; i++) {
-      this.spawnParticle(colors, pieceType)
-    }
-  }
-
-  spawnParticle(colorPalette, pieceType) {
-    const angle = MathUtils.random(0, Math.PI * 2)
-    const speed = MathUtils.random(100, 600)
-    const life = MathUtils.random(400, 1000)
-    const size = MathUtils.random(2, 8)
-    
-    const color = colorPalette[MathUtils.randomInt(0, colorPalette.length - 1)]
-    
-    const particle = {
-      x: this.emitterX,
-      y: this.emitterY,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      life: life,
-      maxLife: life,
-      size: size,
-      color: color,
-      rotation: MathUtils.random(0, Math.PI * 2),
-      rotationSpeed: MathUtils.random(-5, 5),
-      type: MathUtils.randomInt(0, 3),
-      gravity: pieceType === 'pawn' ? 100 : 50,
-      trail: []
-    }
-
-    this.particles.push(particle)
-    
-    if (this.particles.length > this.maxParticles) {
-      this.particles.shift()
-    }
+export class Particle {
+  constructor(x, y, options = {}) {
+    this.x = x
+    this.y = y
+    this.vx = options.vx || 0
+    this.vy = options.vy || 0
+    this.ax = options.ax || 0
+    this.ay = options.ay || 0
+    this.size = options.size || 4
+    this.color = options.color || '#ffffff'
+    this.alpha = options.alpha || 1
+    this.rotation = options.rotation || 0
+    this.rotationSpeed = options.rotationSpeed || 0
+    this.life = options.life || 1
+    this.maxLife = this.life
+    this.shape = options.shape || 'circle'
+    this.gravity = options.gravity || 0
+    this.friction = options.friction || 0.98
+    this.glow = options.glow || false
+    this.glowColor = options.glowColor || this.color
   }
 
   update(dt) {
-    if (!this.active && this.particles.length === 0) return
+    this.vx += this.ax * dt
+    this.vy += this.ay * dt
+    this.vy += this.gravity * dt
+    this.vx *= this.friction
+    this.vy *= this.friction
+    this.x += this.vx * dt
+    this.y += this.vy * dt
+    this.rotation += this.rotationSpeed * dt
+    this.life -= dt
+    this.alpha = Math.max(0, this.life / this.maxLife)
+  }
 
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i]
-      
-      p.trail.push({ x: p.x, y: p.y })
-      if (p.trail.length > 8) p.trail.shift()
-
-      p.vy += p.gravity * dt
-      p.vx *= 0.99
-      p.vy *= 0.99
-      
-      p.x += p.vx * dt
-      p.y += p.vy * dt
-      p.rotation += p.rotationSpeed * dt
-      p.life -= dt * 1000
-
-      if (p.life <= 0 || p.y > this.height + 50) {
-        this.particles.splice(i, 1)
-      }
-    }
-
-    this.active = this.particles.length > 0
+  isDead() {
+    return this.life <= 0
   }
 
   render(ctx) {
-    this.particles.forEach(p => {
-      const alpha = p.life / p.maxLife
-      
-      if (p.trail.length > 1) {
-        ctx.save()
-        ctx.globalAlpha = alpha * 0.3
-        ctx.strokeStyle = p.color
-        ctx.lineWidth = p.size * 0.5
-        ctx.lineCap = 'round'
+    if (this.alpha <= 0) return
+
+    ctx.save()
+    ctx.globalAlpha = this.alpha
+    ctx.translate(this.x, this.y)
+    ctx.rotate(this.rotation)
+
+    if (this.glow) {
+      ctx.shadowColor = this.glowColor
+      ctx.shadowBlur = this.size * 2
+    }
+
+    ctx.fillStyle = this.color
+
+    switch (this.shape) {
+      case 'circle':
         ctx.beginPath()
-        ctx.moveTo(p.trail[0].x, p.trail[0].y)
-        for (let i = 1; i < p.trail.length; i++) {
-          ctx.lineTo(p.trail[i].x, p.trail[i].y)
-        }
-        ctx.stroke()
-        ctx.restore()
-      }
+        ctx.arc(0, 0, this.size, 0, Math.PI * 2)
+        ctx.fill()
+        break
+      case 'square':
+        ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size)
+        break
+      case 'diamond':
+        ctx.beginPath()
+        ctx.moveTo(0, -this.size)
+        ctx.lineTo(this.size, 0)
+        ctx.lineTo(0, this.size)
+        ctx.lineTo(-this.size, 0)
+        ctx.closePath()
+        ctx.fill()
+        break
+      case 'triangle':
+        ctx.beginPath()
+        ctx.moveTo(0, -this.size)
+        ctx.lineTo(this.size * 0.866, this.size * 0.5)
+        ctx.lineTo(-this.size * 0.866, this.size * 0.5)
+        ctx.closePath()
+        ctx.fill()
+        break
+      case 'shard':
+        ctx.beginPath()
+        ctx.moveTo(0, -this.size)
+        ctx.lineTo(this.size * 0.8, this.size * 0.2)
+        ctx.lineTo(this.size * 0.3, this.size)
+        ctx.lineTo(-this.size * 0.5, this.size * 0.5)
+        ctx.closePath()
+        ctx.fill()
+        break
+    }
 
-      ctx.save()
-      ctx.globalAlpha = alpha
-      ctx.translate(p.x, p.y)
-      ctx.rotate(p.rotation)
+    ctx.restore()
+  }
+}
 
-      ctx.fillStyle = p.color
-      
-      switch (p.type) {
-        case 0:
-          ctx.beginPath()
-          ctx.arc(0, 0, p.size, 0, Math.PI * 2)
-          ctx.fill()
-          break
-        case 1:
-          ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size)
-          break
-        case 2:
-          ctx.beginPath()
-          ctx.moveTo(0, -p.size)
-          ctx.lineTo(p.size, p.size)
-          ctx.lineTo(-p.size, p.size)
-          ctx.closePath()
-          ctx.fill()
-          break
-        case 3:
-          ctx.beginPath()
-          for (let i = 0; i < 5; i++) {
-            const angle = (i / 5) * Math.PI * 2 - Math.PI / 2
-            const r = i % 2 === 0 ? p.size : p.size * 0.4
-            ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r)
-          }
-          ctx.closePath()
-          ctx.fill()
-          break
+export class ParticleSystem {
+  constructor() {
+    this.particles = []
+    this.emitters = []
+    this.maxParticles = 500
+  }
+
+  emit(x, y, options = {}) {
+    const count = options.count || 1
+    const spread = options.spread || Math.PI * 2
+    const speed = options.speed || 100
+    const angle = options.angle || 0
+
+    for (let i = 0; i < count; i++) {
+      if (this.particles.length >= this.maxParticles) break
+
+      const a = angle + (Math.random() - 0.5) * spread
+      const s = speed * (0.5 + Math.random() * 0.5)
+
+      this.particles.push(new Particle(x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        size: options.size || (2 + Math.random() * 3),
+        color: options.color || this._randomColor(options.palette),
+        life: options.life || (0.5 + Math.random() * 1),
+        shape: options.shape || 'circle',
+        gravity: options.gravity || 0,
+        friction: options.friction || 0.98,
+        rotationSpeed: (Math.random() - 0.5) * 10,
+        glow: options.glow || false,
+        glowColor: options.glowColor
+      }))
+    }
+  }
+
+  emitBurst(x, y, options = {}) {
+    this.emit(x, y, { ...options, count: options.count || 20, spread: Math.PI * 2 })
+  }
+
+  emitDirectional(x, y, angle, options = {}) {
+    this.emit(x, y, { ...options, angle, spread: options.spread || Math.PI / 4 })
+  }
+
+  addEmitter(emitter) {
+    this.emitters.push(emitter)
+  }
+
+  removeEmitter(emitter) {
+    const idx = this.emitters.indexOf(emitter)
+    if (idx !== -1) this.emitters.splice(idx, 1)
+  }
+
+  update(dt) {
+    for (const emitter of this.emitters) {
+      if (emitter.active) {
+        emitter.update(dt, this)
       }
-      ctx.restore()
-    })
+    }
+
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i]
+      p.update(dt)
+      if (p.isDead()) {
+        this.particles.splice(i, 1)
+      }
+    }
+  }
+
+  render(ctx) {
+    for (const p of this.particles) {
+      p.render(ctx)
+    }
   }
 
   clear() {
-    this.particles = []
-    this.active = false
+    this.particles.length = 0
+    this.emitters.length = 0
   }
 
-  resize(width, height) {
-    this.width = width
-    this.height = height
+  getCount() {
+    return this.particles.length
   }
+
+  _randomColor(palette) {
+    if (!palette || !palette.length) return '#ffffff'
+    return palette[Math.floor(Math.random() * palette.length)]
+  }
+}
+
+export class ParticleEmitter {
+  constructor(options = {}) {
+    this.x = options.x || 0
+    this.y = options.y || 0
+    this.rate = options.rate || 10
+    this.options = options
+    this.active = true
+    this.timer = 0
+    this.duration = options.duration || 0
+    this.elapsed = 0
+  }
+
+  update(dt, system) {
+    if (!this.active) return
+
+    this.elapsed += dt
+    if (this.duration > 0 && this.elapsed >= this.duration) {
+      this.active = false
+      return
+    }
+
+    this.timer += dt
+    const interval = 1 / this.rate
+
+    while (this.timer >= interval) {
+      this.timer -= interval
+      system.emit(this.x, this.y, this.options)
+    }
+  }
+
+  setPosition(x, y) {
+    this.x = x
+    this.y = y
+  }
+
+  setRate(rate) {
+    this.rate = rate
+  }
+
+  stop() {
+    this.active = false
+  }
+}
+
+export const ParticlePalettes = {
+  white: ['#ffffff', '#fff8dc', '#ffec8b', '#ffe4b5', '#fffacd'],
+  black: ['#333333', '#1a1a2e', '#16213e', '#0f3460', '#e94560'],
+  gold: ['#ffd700', '#ffec8b', '#fff8dc', '#ffe4b5', '#ffff00'],
+  fire: ['#ff4500', '#ff6347', '#ff7f50', '#ffa500', '#ffff00'],
+  magic: ['#7c4dff', '#00ffff', '#ff4081', '#ffffff', '#e0d0ff'],
+  blood: ['#8b0000', '#dc143c', '#ff0000', '#b22222', '#800000'],
+  ice: ['#00ffff', '#7fffff', '#ffffff', '#e0ffff', '#b0e0e6'],
+  earth: ['#8b7355', '#a0522d', '#cd853f', '#d2b48c', '#f5deb3']
 }

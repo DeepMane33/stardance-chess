@@ -54,7 +54,7 @@ export const MathUtils = {
   clamp: (v, min, max) => Math.max(min, Math.min(max, v)),
   lerp: (a, b, t) => a + (b - a) * t,
   lerpAngle: (a, b, t) => {
-    const diff = ((b - a + Math.PI) % (2 * Math.PI)) - Math.PI;
+    const diff = (((b - a + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
     return a + diff * t;
   },
   map: (v, inMin, inMax, outMin, outMax) => 

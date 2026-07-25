@@ -1,6 +1,20 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
-.cache/
+
+# Large binary files
+public/stockfish-18-single.wasm
+public/stockfish.wasm
+public/stockfish-worker.wasm
+
+# Test artifacts
+*.png
 *.log
-.DS_Store
-Thumbs.db
+test-results/
+logs/
+
+# Dev files
+.mimocode/
+.wakatime-project

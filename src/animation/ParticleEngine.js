@@ -12,7 +12,7 @@ export const ParticlePresets = {
     spread: Math.PI * 2,
     angleOffset: -Math.PI / 2
   },
-  
+
   embers: {
     count: 25,
     colors: ['#ff6b35', '#ff8c00', '#ffa500', '#ffd700', '#ffffff'],
@@ -45,10 +45,10 @@ export const ParticlePresets = {
     speed: { min: 20, max: 80 },
     gravity: -20,
     life: { min: 1.0, max: 2.0 },
-    shapes: ['circle'],
+    shapes: ['circle', 'smokePuff'],
     spread: Math.PI * 0.8,
     angleOffset: -Math.PI / 2,
-    expansion: 1.5
+    expansion: { value: 1.5 }
   },
 
   lightFragments: {
@@ -127,6 +127,248 @@ export const ParticlePresets = {
     spread: Math.PI * 2,
     angleOffset: 0,
     rotationSpeed: { min: -15, max: 15 }
+  },
+
+  capture: {
+    count: 30,
+    colors: ['#00dc32', '#80ff80', '#00ff40', '#555555', '#ffffff'],
+    size: { min: 2, max: 5 },
+    speed: { min: 80, max: 200 },
+    gravity: 150,
+    life: { min: 0.4, max: 0.8 },
+    shapes: ['circle', 'square'],
+    spread: Math.PI * 2,
+    angleOffset: 0
+  },
+
+  // === Premium Cinematic Presets ===
+
+  plasmaBurst: {
+    count: 40,
+    colors: ['#ffd700', '#ff6b35', '#ff4081', '#ffffff'],
+    size: { min: 2, max: 6 },
+    speed: { min: 150, max: 500 },
+    gravity: 200,
+    life: { min: 0.3, max: 0.7 },
+    shapes: ['circle', 'diamond'],
+    spread: Math.PI * 2,
+    angleOffset: 0,
+    glow: true,
+    trailLength: 3
+  },
+
+  electricBurst: {
+    count: 25,
+    colors: ['#00ffff', '#7c4dff', '#ffffff'],
+    size: { min: 1, max: 3 },
+    speed: { min: 300, max: 800 },
+    gravity: 0,
+    life: { min: 0.15, max: 0.35 },
+    shapes: ['slash', 'diamond'],
+    spread: Math.PI * 2,
+    angleOffset: 0,
+    rotationSpeed: { min: -30, max: 30 },
+    glow: true
+  },
+
+  energyWave: {
+    count: 1,
+    colors: ['rgba(255,215,0,0.9)', 'rgba(0,255,255,0.7)', 'rgba(255,64,129,0.5)'],
+    size: { min: 5, max: 5 },
+    speed: { min: 0, max: 0 },
+    gravity: 0,
+    life: { min: 0.5, max: 0.5 },
+    shapes: ['ring'],
+    spread: 0,
+    angleOffset: 0,
+    expansion: 1500
+  },
+
+  impactSparks: {
+    count: 50,
+    colors: ['#ffd700', '#ffec8b', '#ffffff', '#ff6b35'],
+    size: { min: 1, max: 3 },
+    speed: { min: 200, max: 700 },
+    gravity: 350,
+    life: { min: 0.2, max: 0.6 },
+    shapes: ['circle', 'line'],
+    spread: Math.PI * 2,
+    angleOffset: 0,
+    trailLength: 2
+  },
+
+  debrisShard: {
+    count: 30,
+    colors: ['#ffd700', '#ff6b35', '#ff4081', '#7c4dff', '#e8e8e8'],
+    size: { min: 3, max: 7 },
+    speed: { min: 100, max: 400 },
+    gravity: 280,
+    life: { min: 0.4, max: 1.0 },
+    shapes: ['diamond', 'square', 'slash'],
+    spread: Math.PI * 2,
+    angleOffset: 0,
+    rotationSpeed: { min: -20, max: 20 },
+    glow: true
+  },
+
+  risingEmber: {
+    count: 20,
+    colors: ['#ff6b35', '#ffa500', '#ffd700', '#ffffff'],
+    size: { min: 1, max: 3 },
+    speed: { min: 30, max: 80 },
+    gravity: -60,
+    life: { min: 1.0, max: 2.5 },
+    shapes: ['circle'],
+    spread: Math.PI * 1.2,
+    angleOffset: -Math.PI / 2,
+    glow: true,
+    trailLength: 4
+  },
+
+  // === ASSASSINATION / CAPTURE CINEMATIC PRESETS ===
+
+  assassination: {
+    count: 60,
+    colors: ['#ff1a1a', '#ff4444', '#ff6666', '#ffcc00', '#ffffff', '#8b0000'],
+    size: { min: 1.5, max: 5 },
+    speed: { min: 200, max: 1000 },
+    gravity: 250,
+    life: { min: 0.3, max: 1.0 },
+    shapes: ['slash', 'diamond', 'bloodDrop', 'spark'],
+    spread: Math.PI * 1.5,
+    angleOffset: -Math.PI / 2,
+    rotationSpeed: { min: -25, max: 25 },
+    glow: true,
+    trailLength: 4
+  },
+
+  bloodMist: {
+    count: 40,
+    colors: ['rgba(139,0,0,0.7)', 'rgba(200,0,0,0.5)', 'rgba(255,50,50,0.4)', 'rgba(100,0,0,0.6)'],
+    size: { min: 4, max: 12 },
+    speed: { min: 15, max: 60 },
+    gravity: -10,
+    life: { min: 1.5, max: 3.0 },
+    shapes: ['circle', 'smokePuff'],
+    spread: Math.PI * 2,
+    angleOffset: 0,
+    expansion: 30,
+    fade: true
+  },
+
+  executionFlash: {
+    count: 1,
+    colors: ['rgba(255,255,255,0.95)', 'rgba(255,200,0,0.8)'],
+    size: { min: 10, max: 10 },
+    speed: { min: 0, max: 0 },
+    gravity: 0,
+    life: { min: 0.08, max: 0.08 },
+    shapes: ['flashRing'],
+    spread: 0,
+    angleOffset: 0,
+    expansion: 3000
+  },
+
+  soulRelease: {
+    count: 30,
+    colors: ['#ffffff', '#e8f0ff', '#c0d8ff', '#ffd700', '#fff8dc'],
+    size: { min: 2, max: 6 },
+    speed: { min: 20, max: 100 },
+    gravity: -80,
+    life: { min: 1.0, max: 2.5 },
+    shapes: ['spirit', 'diamond', 'star'],
+    spread: Math.PI * 1.2,
+    angleOffset: -Math.PI / 2,
+    rotationSpeed: { min: -10, max: 10 },
+    glow: true,
+    trailLength: 5
+  },
+
+  bladeSlash: {
+    count: 15,
+    colors: ['#ffffff', '#ffd700', '#ff4444', '#00ffff'],
+    size: { min: 30, max: 60 },
+    speed: { min: 0, max: 0 },
+    gravity: 0,
+    life: { min: 0.1, max: 0.2 },
+    shapes: ['slashTrail'],
+    spread: Math.PI * 0.2,
+    angleOffset: -Math.PI / 2,
+    rotationSpeed: { min: -3, max: 3 },
+    glow: true
+  },
+
+  impactBurst: {
+    count: 50,
+    colors: ['#ffd700', '#ff6b35', '#ffffff', '#ff1a1a', '#ff8800'],
+    size: { min: 2, max: 8 },
+    speed: { min: 300, max: 1200 },
+    gravity: 400,
+    life: { min: 0.2, max: 0.6 },
+    shapes: ['spark', 'diamond', 'shard'],
+    spread: Math.PI * 2,
+    angleOffset: 0,
+    rotationSpeed: { min: -30, max: 30 },
+    glow: true,
+    trailLength: 3
+  },
+
+  pieceShatter: {
+    count: 35,
+    colors: ['#ffffff', '#f0f0f0', '#e0e0e0', '#d0d0d0', '#c0c0c0'],
+    size: { min: 3, max: 10 },
+    speed: { min: 150, max: 500 },
+    gravity: 300,
+    life: { min: 0.5, max: 1.5 },
+    shapes: ['shard', 'square', 'triangle'],
+    spread: Math.PI * 2,
+    angleOffset: 0,
+    rotationSpeed: { min: -20, max: 20 },
+    trailLength: 2
+  },
+
+  darkEnergy: {
+    count: 45,
+    colors: ['#4a006e', '#6e00a3', '#9b4dff', '#cc88ff', '#ffffff'],
+    size: { min: 2, max: 7 },
+    speed: { min: 100, max: 600 },
+    gravity: 50,
+    life: { min: 0.4, max: 1.2 },
+    shapes: ['spirit', 'diamond', 'slash'],
+    spread: Math.PI * 2,
+    angleOffset: 0,
+    rotationSpeed: { min: -15, max: 15 },
+    glow: true,
+    trailLength: 4
+  },
+
+  holyLight: {
+    count: 45,
+    colors: ['#fff8dc', '#ffd700', '#ffffe0', '#ffffff', '#ffe4b5'],
+    size: { min: 2, max: 7 },
+    speed: { min: 100, max: 600 },
+    gravity: -30,
+    life: { min: 0.4, max: 1.2 },
+    shapes: ['spirit', 'star', 'diamond'],
+    spread: Math.PI * 1.5,
+    angleOffset: -Math.PI / 2,
+    rotationSpeed: { min: -10, max: 10 },
+    glow: true,
+    trailLength: 5
+  },
+
+  staggerRings: {
+    count: 3,
+    colors: ['rgba(255,215,0,0.9)', 'rgba(255,100,100,0.7)', 'rgba(0,255,255,0.5)'],
+    size: { min: 5, max: 5 },
+    speed: { min: 0, max: 0 },
+    gravity: 0,
+    life: { min: 0.4, max: 0.6 },
+    shapes: ['ring'],
+    spread: 0,
+    angleOffset: 0,
+    expansion: { rate: { min: 800, max: 1600 } },
+    delay: { min: 0, max: 0.08 }
   }
 };
 
@@ -146,14 +388,25 @@ class Particle {
     this.rotation = config.rotation || 0;
     this.rotationSpeed = config.rotationSpeed || 0;
     this.expansion = config.expansion || 0;
+    this.maxRadius = config.maxRadius || null;
     this.glow = config.glow || false;
-    this.alpha = 1;
+    this.alpha = config.alpha || 1;
     this.trail = [];
     this.trailLength = config.trailLength || 0;
     this.customDraw = config.customDraw || null;
+    this.delay = config.delay || 0;
+    this.active = this.delay <= 0;
   }
 
-  update(dt) {
+  update(dt, currentTime) {
+    if (!this.active) {
+      if (this.delay > 0) {
+        this.delay -= dt;
+        if (this.delay <= 0) this.active = true;
+      }
+      return true;
+    }
+    
     this.age += dt;
     this.life = 1 - (this.age / this.maxLife);
     
@@ -170,44 +423,59 @@ class Particle {
     this.rotation += this.rotationSpeed * dt;
     
     if (this.expansion) {
-      this.radius += this.expansion * dt;
+      const exp = typeof this.expansion === 'object' ? this.expansion : { value: this.expansion };
+      const rate = exp.value ?? exp.min ?? 0;
+      this.radius += rate * dt;
+      if (this.maxRadius && this.radius > this.maxRadius) {
+        this.radius = this.maxRadius;
+      }
     }
     
     return true;
   }
 
   draw(ctx) {
-    if (this.life <= 0) return;
-    
+    if (!this.active || this.life <= 0) return;
+
     ctx.save();
     ctx.globalAlpha = this.alpha * this.life;
     ctx.translate(this.x, this.y);
     ctx.rotate(this.rotation);
-    
+
+    // Draw trail with fade
     if (this.trail.length > 1) {
-      ctx.beginPath();
-      ctx.moveTo(this.trail[0].x - this.x, this.trail[0].y - this.y);
       for (let i = 1; i < this.trail.length; i++) {
-        ctx.lineTo(this.trail[i].x - this.x, this.trail[i].y - this.y);
+        const t = i / this.trail.length
+        const prev = this.trail[i - 1]
+        const curr = this.trail[i]
+        ctx.beginPath()
+        ctx.moveTo(prev.x - this.x, prev.y - this.y)
+        ctx.lineTo(curr.x - this.x, curr.y - this.y)
+        ctx.strokeStyle = this.color.replace(/[\d.]+\)$/, `${this.alpha * this.life * t * 0.4})`)
+        ctx.lineWidth = Math.max(0.5, this.radius * 0.3 * t)
+        ctx.lineCap = 'round'
+        ctx.stroke()
       }
-      ctx.strokeStyle = this.color.replace(/[\d.]+\)$/, `${this.alpha * this.life * 0.3})`);
-      ctx.lineWidth = Math.max(1, this.radius * 0.4);
-      ctx.stroke();
     }
-    
-    if (this.customDraw) {
-      this.customDraw(ctx, this);
-    } else {
-      this.drawShape(ctx);
-    }
-    
+
+    // Glow first (behind)
     if (this.glow) {
-      ctx.shadowColor = this.color;
-      ctx.shadowBlur = this.radius * 3;
-      this.drawShape(ctx);
+      ctx.save()
+      ctx.shadowColor = this.color
+      ctx.shadowBlur = this.radius * 4
+      ctx.globalAlpha = this.alpha * this.life * 0.6
+      this.drawShape(ctx)
+      ctx.restore()
     }
-    
-    ctx.restore();
+
+    // Main shape
+    if (this.customDraw) {
+      this.customDraw(ctx, this)
+    } else {
+      this.drawShape(ctx)
+    }
+
+    ctx.restore()
   }
 
   drawShape(ctx) {
@@ -248,11 +516,84 @@ class Particle {
         ctx.strokeStyle = this.color;
         ctx.stroke();
         return;
+      case 'bloodDrop':
+        ctx.moveTo(0, -r * 0.5);
+        ctx.bezierCurveTo(r * 0.7, -r * 0.3, r * 0.7, r * 0.5, 0, r * 1.5);
+        ctx.bezierCurveTo(-r * 0.7, r * 0.5, -r * 0.7, -r * 0.3, 0, -r * 0.5);
+        break;
+      case 'smokePuff':
+        this.drawSmokePuff(ctx, 0, 0, r);
+        break;
+      case 'flashRing':
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.lineWidth = Math.max(2, r * 0.08);
+        ctx.strokeStyle = this.color;
+        ctx.stroke();
+        ctx.save();
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = r * 2;
+        ctx.globalAlpha = 0.5;
+        ctx.stroke();
+        ctx.restore();
+        return;
+      case 'spirit':
+        ctx.moveTo(0, -r);
+        ctx.lineTo(r * 0.6, 0);
+        ctx.lineTo(0, r);
+        ctx.lineTo(-r * 0.6, 0);
+        ctx.closePath();
+        break;
+      case 'slashTrail':
+        ctx.moveTo(-r * 2, -r * 0.3);
+        ctx.lineTo(r * 2, r * 0.3);
+        ctx.lineTo(r * 1.5, r * 0.8);
+        ctx.lineTo(-r * 2.5, -r * 0.8);
+        ctx.closePath();
+        break;
+      case 'spark':
+        ctx.moveTo(0, -r);
+        ctx.lineTo(r * 0.3, -r * 0.3);
+        ctx.lineTo(r, 0);
+        ctx.lineTo(r * 0.3, r * 0.3);
+        ctx.lineTo(0, r);
+        ctx.lineTo(-r * 0.3, r * 0.3);
+        ctx.lineTo(-r, 0);
+        ctx.lineTo(-r * 0.3, -r * 0.3);
+        ctx.closePath();
+        break;
+      case 'shard':
+        ctx.moveTo(0, -r);
+        ctx.lineTo(r * 0.8, r * 0.2);
+        ctx.lineTo(r * 0.3, r);
+        ctx.lineTo(-r * 0.5, r * 0.5);
+        ctx.closePath();
+        break;
+      case 'triangle':
+        ctx.moveTo(0, -r);
+        ctx.lineTo(r * 0.866, r * 0.5);
+        ctx.lineTo(-r * 0.866, r * 0.5);
+        ctx.closePath();
+        break;
       default:
         ctx.arc(0, 0, r, 0, Math.PI * 2);
     }
     
     ctx.fill();
+  }
+
+  drawSmokePuff(ctx, cx, cy, r) {
+    const offsets = [
+      { x: 0, y: 0, s: 1 },
+      { x: r * 0.4, y: -r * 0.2, s: 0.7 },
+      { x: -r * 0.3, y: -r * 0.3, s: 0.6 },
+      { x: r * 0.2, y: r * 0.3, s: 0.5 },
+      { x: -r * 0.5, y: r * 0.1, s: 0.4 }
+    ];
+    for (const o of offsets) {
+      ctx.beginPath();
+      ctx.arc(cx + o.x, cy + o.y, r * o.s, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   drawStar(ctx, cx, cy, outerR, innerR, points) {
@@ -344,6 +685,13 @@ export class ParticleEngine {
         ? MathUtils.random(config.rotationSpeed.min, config.rotationSpeed.max)
         : MathUtils.random(-5, 5);
       
+      const expansion = typeof config.expansion === 'object' 
+        ? config.expansion.rate 
+        : (config.expansion || 0);
+      const maxRadius = typeof config.expansion === 'object' 
+        ? config.expansion.max 
+        : null;
+      
       const particle = this.getPooledParticle({
         x: x + (config.offsetX || 0),
         y: y + (config.offsetY || 0),
@@ -356,10 +704,12 @@ export class ParticleEngine {
         gravity: config.gravity || 0,
         rotation: Math.random() * Math.PI * 2,
         rotationSpeed,
-        expansion: config.expansion || 0,
+        expansion,
+        maxRadius,
         glow: config.glow || false,
         trailLength: config.trailLength || 0,
-        alpha: config.alpha || 1
+        alpha: config.alpha || 1,
+        delay: config.delay ? MathUtils.random(config.delay.min, config.delay.max) : 0
       });
       
       this.addToLayer(particle, layer);
@@ -378,6 +728,8 @@ export class ParticleEngine {
     if (this.objectPool.length > 0) {
       const p = this.objectPool.pop();
       Object.assign(p, config);
+      p.delay = config.delay || 0;
+      p.active = p.delay <= 0;
       return p;
     }
     return new Particle(config);
@@ -466,7 +818,7 @@ export class ParticleEngine {
 
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
-      if (!p.update(dt)) {
+      if (!p.update(dt, this.time)) {
         this.returnToPool(p);
         this.particles.splice(i, 1);
         for (const layer of this.layers.values()) {
@@ -486,11 +838,73 @@ export class ParticleEngine {
       this.ctx.globalAlpha = layer.alpha;
       this.ctx.globalCompositeOperation = layer.blendMode;
       
+      // Batch particles by (color, shape, glow) to minimize state changes
+      const batches = new Map();
       for (const p of layer.particles) {
-        p.draw(this.ctx);
+        if (!p.active && p.delay > 0) continue;
+        if (p.life <= 0) continue;
+        const key = `${p.color}|${p.shape}|${p.glow}|${p.alpha}`;
+        if (!batches.has(key)) batches.set(key, []);
+        batches.get(key).push(p);
+      }
+      
+      for (const [, batch] of batches) {
+        if (batch.length === 1) {
+          batch[0].draw(this.ctx);
+        } else {
+          this.drawBatch(batch);
+        }
       }
       
       this.ctx.restore();
+    }
+  }
+
+  drawBatch(batch) {
+    const p = batch[0];
+    const ctx = this.ctx;
+    
+    // Set shared state once
+    ctx.globalAlpha = p.alpha;
+    ctx.strokeStyle = p.color;
+    ctx.fillStyle = p.color;
+    
+    // Draw all trails first
+    for (const p of batch) {
+      if (p.trail.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(p.trail[0].x, p.trail[0].y);
+        for (let i = 1; i < p.trail.length; i++) {
+          ctx.lineTo(p.trail[i].x, p.trail[i].y);
+        }
+        ctx.lineWidth = Math.max(0.5, p.radius * 0.3);
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = p.color.replace(/[\d.]+\)$/, `${p.alpha * p.life * 0.4})`);
+        ctx.stroke();
+      }
+    }
+    
+    // Draw all shapes
+    for (const p of batch) {
+      if (p.life <= 0) continue;
+      
+      ctx.save();
+      ctx.globalAlpha = p.alpha * p.life;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation);
+      
+      // Glow
+      if (p.glow) {
+        ctx.save();
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = p.radius * 4;
+        ctx.globalAlpha = p.alpha * p.life * 0.6;
+        p.drawShape(ctx);
+        ctx.restore();
+      }
+      
+      p.drawShape(ctx);
+      ctx.restore();
     }
   }
 

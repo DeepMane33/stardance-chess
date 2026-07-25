@@ -47,9 +47,9 @@ export class EloSystem {
     return change
   }
 
-  updateRatings(mode, playerResult) {
-    const playerElo = this.ratings[mode]
-    const opponentElo = mode === 'bot' ? 1200 : this.ratings.player
+  updateRatings(mode, playerResult, opponentEloOverride = null) {
+    const playerElo = this.ratings[mode] ?? 1500
+    const opponentElo = opponentEloOverride ?? (mode === 'bot' ? 1200 : this.ratings[mode] ?? 1500)
 
     const change = this.calculate(playerElo, opponentElo, playerResult)
     this.ratings[mode] = Math.max(100, playerElo + change)

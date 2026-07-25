@@ -1,5 +1,6 @@
 import { Chess } from 'chess.js'
 import { EventBus } from '../utils/EventBus.js'
+import { Piece, Color, Square } from './ChessTypes.js'
 
 const FILES = 'abcdefgh'
 const RANKS = '12345678'
@@ -204,29 +205,4 @@ getCastlingRights() {
     this.orientation = this.orientation === 'white' ? 'black' : 'white'
     this.emit('flip', this.orientation)
   }
-}
-
-export const Piece = {
-  NONE: 0,
-  PAWN: 1,
-  KNIGHT: 2,
-  BISHOP: 3,
-  ROOK: 4,
-  QUEEN: 5,
-  KING: 6
-}
-
-export const Color = {
-  NONE: 0,
-  WHITE: 1,
-  BLACK: 2
-}
-
-export const Square = {
-  NONE: -1
-}
-
-for (let i = 0; i < 64; i++) {
-  const name = indexToAlgebraic(i)
-  Square[name] = i
 }

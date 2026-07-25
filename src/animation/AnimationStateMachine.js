@@ -74,6 +74,9 @@ export class AnimationStateMachine {
       this.vfx.runIntro().then(() => {
         this.enterPhase(AnimationPhase.VFX_SEQUENCE)
       })
+    }).catch(err => {
+      console.error('Failed to load CaptureVFX:', err)
+      this.resume()
     })
   }
 
