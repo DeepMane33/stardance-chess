@@ -13,7 +13,7 @@ export class CanvasRenderer {
   resize(width, height) {
     this.width = width
     this.height = height
-    const boardSize = Math.min(width, height) * 0.92
+    const boardSize = Math.min(width, height - 120) * 0.92
     this.squareSize = boardSize / 8
     this.boardOffsetX = (width - boardSize) / 2
     this.boardOffsetY = (height - boardSize) / 2

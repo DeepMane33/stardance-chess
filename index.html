@@ -159,6 +159,24 @@
     <button class="btn btn-secondary btn-small" data-action="back-to-mode-select">Back</button>
   </div>
 
+  <!-- Color Selection -->
+  <div id="color-select" class="screen">
+    <h2 class="section-title">Choose Your Color</h2>
+    <div class="color-cards">
+      <div class="color-card" data-color="white" data-action="select-color">
+        <div class="color-icon">&#9814;</div>
+        <div class="color-name">White</div>
+        <div class="color-desc">Move first</div>
+      </div>
+      <div class="color-card" data-color="black" data-action="select-color">
+        <div class="color-icon">&#9820;</div>
+        <div class="color-name">Black</div>
+        <div class="color-desc">Move second</div>
+      </div>
+    </div>
+    <button class="btn btn-secondary btn-small" data-action="back-to-difficulty">Back</button>
+  </div>
+
   <!-- Game HUD -->
   <div id="game-hud" class="screen">
     <!-- Top player (opponent) -->
@@ -223,7 +241,7 @@
       <div class="rating-new">New Rating: 1515</div>
       <div class="game-over-buttons">
         <button class="btn btn-primary btn-small" data-action="rematch">Rematch</button>
-        <button class="btn btn-secondary btn-small" data-action="back-to-menu-gameover">Main Menu</button>
+        <button class="btn btn-secondary btn-small" data-action="back-to-menu-game">Main Menu</button>
       </div>
     </div>
   </div>

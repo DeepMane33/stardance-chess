@@ -25,43 +25,32 @@ export class Renderer {
 
     this.clear()
 
-    if (camera && camera.isActive) {
-      camera.applyTransform(ctx)
-    }
+    const cameraActive = camera && camera.isActive
+    if (cameraActive) camera.applyTransform(ctx)
 
-    this.renderBackground(ctx, width, height)
+    try {
+      this.renderBackground(ctx, width, height)
 
-    this.boardRenderer.render(ctx)
+      this.boardRenderer.render(ctx)
 
-    if (engine) {
-      this.renderStaticPieces(engine, captureEffects)
-    }
-
-    // Render ghost pieces (attacker + victim)
-    this.renderGhostPieces(ctx, ghostPieces, captureEffects)
-
-    // Render trails
-    for (const trail of trails) {
-      if (trail && trail.length > 1) {
-        this.renderTrail(ctx, trail)
+      if (engine) {
+        this.renderStaticPieces(engine, captureEffects)
       }
+
+      this.renderGhostPieces(ctx, ghostPieces, captureEffects)
+
+      for (const trail of trails) {
+        if (trail && trail.length > 1) {
+          this.renderTrail(ctx, trail)
+        }
+      }
+    } finally {
+      if (cameraActive) camera.restoreTransform(ctx)
     }
 
-    // Render capture effects (overlays, particles, flashes, etc.)
     if (captureEffects) {
       this.renderCaptureEffects(ctx, captureEffects)
     }
-
-    if (camera && camera.isActive) {
-      camera.restoreTransform(ctx)
-    }
-
-    // Post-processing: particles rendered in screen space
-    if (this.particleSystem) {
-      this.particleSystem.render(ctx)
-    }
-
-    this.renderDebugInfo(ctx, ghostPieces, trails)
   }
 
   clear() {
@@ -87,16 +76,20 @@ export class Renderer {
 
     const pr = this.pieceRenderer
 
-    // Defensive: if ghostPiece exists but animation is done, clear it
-    if (pr.ghostPiece && pr.ghostPiece.alpha <= 0.01) {
-      pr.ghostPiece = null
-      pr.victimGhostPiece = null
-    }
+    // Ghost cleanup is handled by AnimationManager; never nullify mid-animation
+    // (capture effects like Sonido/KnightDarkness may set alpha near 0 intentionally)
 
     for (let sq = 0; sq < 64; sq++) {
       const piece = board[sq]
       const color = colors[sq]
       if (piece === 0) continue
+
+      // During animations, skip the source square (ghost covers it)
+      // For captures, also skip destination (both pieces hidden, ghost handles visuals)
+      if (pr.moveAnim) {
+        // Hide engine piece during animation — ghost covers both squares
+        if (sq === pr.moveAnim.fromSq || sq === pr.moveAnim.toSq) continue
+      }
 
       const { file, rank } = this.canvasRenderer.squareToCoord(sq, this.boardRenderer.boardAppearance.orientation)
       const x = boardOffsetX + file * squareSize + offset
@@ -107,7 +100,7 @@ export class Renderer {
   }
 
   renderGhostPieces(ctx, ghostPieces, captureEffects) {
-    // First draw shadows for all ghosts
+    // Draw shadows for ALL ghost pieces first (including particles)
     for (const ghost of ghostPieces) {
       if (ghost && ghost.alpha > 0.01) {
         ghost.drawShadow(ctx)
@@ -115,30 +108,30 @@ export class Renderer {
       }
     }
 
-    // Draw attacker ghost (always normal)
-    const attackerGhost = this.pieceRenderer.ghostPiece
-    if (attackerGhost && attackerGhost.alpha > 0.01) {
-      attackerGhost.drawTrail(ctx, attackerGhost.color)
-      if (attackerGhost.drawDust) attackerGhost.drawDust(ctx)
-      attackerGhost.draw(ctx)
-    }
-
-    // Draw victim ghost — special handling for PawnSplit
+    // Draw victim ghost (UNDER) – disappears before attacker lands
     const victimGhost = this.pieceRenderer.victimGhostPiece
     if (victimGhost && victimGhost.alpha > 0.01) {
       if (captureEffects?.tier === CaptureTier.PAWN_SPLIT && captureEffects?.effect) {
-        // Use the split rendering method
         this.renderSplitVictim(ctx, victimGhost, captureEffects.effect)
       } else {
         victimGhost.draw(ctx)
       }
     }
 
-    // Draw any remaining ghost pieces passed from animation manager
+    // Draw additional ghost particles from array (NOT attacker or victim)
+    // These are impact debris / particles that should render UNDER the attacker
     for (const ghost of ghostPieces) {
-      if (ghost && ghost.alpha > 0.01 && ghost !== attackerGhost && ghost !== victimGhost) {
+      if (ghost && ghost.alpha > 0.01 && ghost.isParticle) {
         ghost.draw(ctx)
       }
+    }
+
+    // Draw attacker ghost (ON TOP) – the attacking queen
+    const attackerGhost = this.pieceRenderer.ghostPiece
+    if (attackerGhost && attackerGhost.alpha > 0.01) {
+      attackerGhost.drawTrail(ctx, attackerGhost.color)
+      if (attackerGhost.drawDust) attackerGhost.drawDust(ctx)
+      attackerGhost.draw(ctx)
     }
   }
 
@@ -278,13 +271,19 @@ export class Renderer {
 
     if (effects.chromaticAberration > 0.01) {
       const splitDist = pieceSize * 0.04 * effects.chromaticAberration
+      const tempCanvas = document.createElement('canvas')
+      tempCanvas.width = ctx.canvas.width
+      tempCanvas.height = ctx.canvas.height
+      const tempCtx = tempCanvas.getContext('2d')
+      tempCtx.drawImage(ctx.canvas, 0, 0)
+
       ctx.save()
       ctx.globalCompositeOperation = 'screen'
       ctx.globalAlpha = 0.4 * effects.chromaticAberration
       ctx.filter = 'sepia(1) saturate(5) hue-rotate(-120deg)'
-      ctx.drawImage(ctx.canvas, -splitDist, 0)
+      ctx.drawImage(tempCanvas, -splitDist, 0)
       ctx.filter = 'sepia(1) saturate(5) hue-rotate(120deg)'
-      ctx.drawImage(ctx.canvas, splitDist, 0)
+      ctx.drawImage(tempCanvas, splitDist, 0)
       ctx.filter = 'none'
       ctx.restore()
     }

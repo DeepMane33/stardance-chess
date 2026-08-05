@@ -7,6 +7,7 @@ import { InputManager } from './input/InputManager.js'
 import { AudioManager } from './audio/AudioManager.js'
 import { UIManager } from './ui/UIManager.js'
 import { StockfishBot } from './bot/StockfishBot.js'
+import { FallbackBot } from './bot/FallbackBot.js'
 import { EloSystem } from './core/EloSystem.js'
 import { MatchHistory } from './core/MatchHistory.js'
 import { ChessClock } from './core/ChessClock.js'
@@ -24,10 +25,10 @@ const DIFFICULTY_NAMES = {
 }
 
 const DIFFICULTY_ELO = {
-  beginner: 400,
-  intermediate: 800,
-  advanced: 1200,
-  expert: 1600
+  beginner: 800,
+  intermediate: 1200,
+  advanced: 1600,
+  expert: 2000
 }
 
 class Game {
@@ -66,7 +67,11 @@ class Game {
     this.matchHistory = new MatchHistory()
     this.clock = new ChessClock()
     this.audio = new AudioManager()
-    this.bot = new StockfishBot()
+    this.stockfishBot = new StockfishBot()
+    this.fallbackBot = new FallbackBot()
+    this.bot = this.stockfishBot
+    this.botFailures = 0
+    this.maxBotFailures = 3 // Start with Stockfish
 
     this.resize()
     window.addEventListener('resize', () => this.resize())
@@ -95,15 +100,15 @@ class Game {
 
     this.postProcessing = new PostProcessing(window.innerWidth, window.innerHeight)
 
-    this.timeController.onTimeScaleChange = (scale) => {
+    this.timeController.on('onTimeScaleChange', (scale) => {
       this.animationManager.setTimeScale(scale)
-    }
-    this.timeController.onFreezeStart = (duration) => {
+    })
+    this.timeController.on('onFreezeStart', (duration) => {
       this.eventBus.emit('freeze:start', { duration })
-    }
-    this.timeController.onFreezeEnd = () => {
+    })
+    this.timeController.on('onFreezeEnd', () => {
       this.eventBus.emit('freeze:end')
-    }
+    })
 
     const pos = this.engine.getPosition()
     this.renderer.boardRenderer.setPosition(pos)
@@ -120,16 +125,19 @@ class Game {
     })
     this.engine.on('check', () => {
       this.audio.playCheck()
-      // Red flash on check (no camera pan — that breaks click coords)
-      
-      setTimeout(() => { }, 1500)
+      const pos = this.engine.getPosition()
+      const kingSq = pos.board.findIndex((p, i) => p === 6 && pos.colors[i] === this.engine.getTurn())
+      if (kingSq >= 0) {
+        this.animationManager.zoomToKing(kingSq, this.renderer.boardRenderer.boardAppearance.orientation)
+        clearTimeout(this._checkResetTimer)
+        this._checkResetTimer = setTimeout(() => {
+          this.animationManager.resetCameraView()
+        }, 1200)
+      }
     })
-    this.engine.on('gameover', (gameOver) => {
+    this.engine.on('gameover', () => {
       this.audio.playGameOver()
-      if (gameOver && gameOver.result === 'checkmate') {
-        // Red vignette + flash on checkmate (no camera pan)
-        
-        }
+      this.animationManager.resetCameraView()
     })
 
     const initAudioOnClick = async () => {
@@ -138,7 +146,16 @@ class Game {
     this.canvas.addEventListener('click', initAudioOnClick, { once: true })
 
     this.ui.showLoading(30, 'Loading Stockfish...')
-    await this.bot.init()
+    try {
+      await this.stockfishBot.init()
+      this.bot = this.stockfishBot
+      console.log('[Game] Stockfish loaded successfully')
+    } catch (e) {
+      console.warn('[Game] Stockfish failed to load, using fallback bot:', e)
+      this.ui.showLoading(30, 'Stockfish unavailable, using fallback bot...')
+      await this.fallbackBot.init()
+      this.bot = this.fallbackBot
+    }
 
     this.setupUIEvents()
     this.setupInputEvents()
@@ -200,6 +217,12 @@ class Game {
 
     this.ui.on('select-difficulty', (el) => {
       this.pendingDifficulty = el.dataset.difficulty
+      this.playerColor = Math.random() < 0.5 ? 1 : 2
+      this.ui.showScreen('timeControl')
+    })
+
+    this.ui.on('select-color', (el) => {
+      this.playerColor = el.dataset.color === 'white' ? 1 : 2
       this.ui.showScreen('timeControl')
     })
 
@@ -210,6 +233,8 @@ class Game {
     })
 
     this.ui.on('back-to-time-control', () => this.ui.showScreen('timeControl'))
+
+    this.ui.on('back-to-difficulty', () => this.ui.showScreen('botDifficulty'))
 
     this.ui.on('toggle-sound', () => {
       const enabled = !this.audio.enabled
@@ -252,6 +277,16 @@ class Game {
       this.engine.setPaused(true)
       this.ui.showScreen('mainMenu')
     })
+
+    this.ui.on('resign-game', () => {
+      if (!this.gameActive || this.engine.getGameOver()) return
+      this.engine.setPaused(true)
+      this.gameActive = false
+      this.input.setInputEnabled(false)
+      // Emit resignation - opponent wins
+      const winner = this.engine.getTurn() === 1 ? 'black' : 'white'
+      this.endGame({ result: 'resignation', winner })
+    })
   }
 
   setupInputEvents() {
@@ -260,9 +295,19 @@ class Game {
       this.updateHUD()
       this.updateMoveList()
 
+      // NOTE: Clock switching is handled in makeBotMove to avoid double-switching
+      // The clock is already on the correct side after the previous move completed
+
       if (this.gameMode === 'bot' && this.engine.getTurn() !== this.playerColor && !this.engine.getGameOver()) {
         if (animationPromise) {
-          await animationPromise
+          try {
+            await Promise.race([
+              animationPromise,
+              new Promise(resolve => setTimeout(resolve, 2000))
+            ])
+          } catch (e) {
+            console.warn('Player animation timed out, continuing anyway')
+          }
         }
         this.makeBotMove()
       }
@@ -271,7 +316,7 @@ class Game {
     this.input.on('promotion', (pending) => {
       this.ui.showPromotion((piece) => {
         this.input.resolvePromotion(piece)
-      })
+      }, this.engine.getTurn() === 1 ? 'white' : 'black')
     })
   }
 
@@ -286,21 +331,50 @@ class Game {
     this.renderer.boardRenderer.setPosition(this.engine.getPosition())
     this.renderer.pieceRenderer.setLastMove(-1, -1)
 
+    // Determine who moves first
+    const firstPlayer = this.playerColor === 1 ? 'white' : 'black'
+
     if (timeControl > 0) {
       this.clock.configure(timeControl)
-      this.clock.start('white')
+      this.clock.onFlag = (side) => {
+        if (this.gameActive) {
+          const winner = side === 'white' ? 'black' : 'white'
+          this.endGame({ result: 'timeout', winner })
+        }
+      }
+      // Update clock display every tick
+      this.clock.onTick = (display) => {
+        if (!this.gameActive) return
+        this.ui.updateClock('white', display.white)
+        this.ui.updateClock('black', display.black)
+        // Low time warning
+        const lowWhite = this.clock.isLowTime('white')
+        const lowBlack = this.clock.isLowTime('black')
+        const whiteClockEl = document.getElementById('clock-bottom')
+        const blackClockEl = document.getElementById('clock-top')
+        if (whiteClockEl) whiteClockEl.classList.toggle('low-time', lowWhite)
+        if (blackClockEl) blackClockEl.classList.toggle('low-time', lowBlack)
+      }
+      // Start clock for the first player to move
+      this.clock.start(firstPlayer)
       this.updateClockDisplay('white')
       this.updateClockDisplay('black')
     }
 
     this.ui.showScreen('gameHud')
 
+    // Set player side in UI (bottom is player, top is opponent)
+    this.ui.setPlayerSide(this.playerColor === 1 ? 'white' : 'black')
+
     if (mode === 'bot') {
       this.input.setBotMode(true, this.playerColor)
       this.input.setInputEnabled(true)
-      // Reset Stockfish state for new game
-      this.bot.sendCommand('ucinewgame')
-      this.bot.sendCommand('isready')
+      // Reset bot state for new game
+      if (this.bot && typeof this.bot.sendCommand === 'function') {
+        this.bot.sendCommand('ucinewgame')
+        this.bot.sendCommand('isready')
+      }
+      // If bot moves first (player is black), trigger bot move
       if (this.playerColor === 2) {
         this.makeBotMove()
       }
@@ -317,15 +391,21 @@ class Game {
     const botSide = this.playerColor === 1 ? 'black' : 'white'
     this.ui.showThinking(botSide, true)
 
+    if (this.timeControl > 0 && this.gameActive) {
+      this.clock.switchSide(botSide)
+      this.updateClockDisplay(botSide)
+    }
+
     try {
       const elo = DIFFICULTY_ELO[this.botDifficulty] || 800
       const moveStr = await this.bot.getBestMove(this.engine.getFEN(), elo, this.timeControl)
-      if (!moveStr || !this.gameActive) {
-        this.ui.showThinking(botSide, false)
-        this.botThinking = false
-        this.input.setInputEnabled(true)
+
+      if (!moveStr || moveStr === '(none)' || !this.gameActive) {
+        await this.executeBotFallbackMove(botSide)
         return
       }
+
+      this.botFailures = 0
 
       const FILES = 'abcdefgh'
       const RANKS = '12345678'
@@ -347,52 +427,46 @@ class Game {
       const result = this.engine.attemptMove(fromAlg, toAlg, promoPiece)
 
       if (!result.success) {
-        // Stockfish returned an illegal move — fall back to a random legal move
-        console.warn('Bot move failed:', moveStr, '— using fallback')
-        const legalMoves = this.engine.getLegalMoves()
-        if (legalMoves.length === 0) {
-          this.ui.showThinking(botSide, false)
-          this.botThinking = false
-          this.input.setInputEnabled(true)
+        this.botFailures = (this.botFailures || 0) + 1
+
+        if (this.botFailures >= 2 && this.bot.constructor.name === 'StockfishBot') {
+          this.bot = new FallbackBot()
+          await this.bot.init()
+          this.botFailures = 0
+          this.makeBotMove(depth + 1)
           return
         }
-        const fallback = legalMoves[Math.floor(Math.random() * legalMoves.length)]
-        const fbFrom = fallback & 0x3F
-        const fbTo = (fallback >> 6) & 0x3F
-        const fbResult = this.engine.attemptMove(fbFrom, fbTo)
-        if (!fbResult.success) {
-          this.ui.showThinking(botSide, false)
-          this.botThinking = false
-          this.input.setInputEnabled(true)
-          return
-        }
-        this.input.clearSelection()
-        this.updateBoardAfterMove(fbResult.move)
-        this.updateHUD()
-        this.updateMoveList()
-      } else {
-        this.input.clearSelection()
-        this.updateBoardAfterMove(result.move)
-        this.updateHUD()
-        this.updateMoveList()
 
-        // Animate as cosmetic overlay (engine state already committed)
-        let botAnimPromise
-        if (isCapture && animPiece !== 0 && animColor !== 0) {
-          botAnimPromise = this.animationManager.animateCapture({
-            from: fromSq, to: toSq, piece: animPiece, color: animColor,
-            orientation, isCapture: true, onImpact: null
-          }).catch(() => {})
-        } else if (animPiece !== 0 && animColor !== 0) {
-          botAnimPromise = this.animationManager.animateMove({
-            from: fromSq, to: toSq, piece: animPiece, color: animColor,
-            orientation, duration: 0.28
-          }).catch(() => {})
-        }
+        await this.executeBotFallbackMove(botSide)
+        return
+      }
 
-        // Wait for bot's animation to finish before proceeding
-        if (botAnimPromise) {
-          await botAnimPromise
+      this.input.clearSelection()
+      this.updateBoardAfterMove(result.move)
+      this.updateHUD()
+      this.updateMoveList()
+
+      let botAnimPromise
+      if (isCapture && animPiece !== 0 && animColor !== 0) {
+        botAnimPromise = this.animationManager.animateCapture({
+          from: fromSq, to: toSq, piece: animPiece, color: animColor,
+          orientation, isCapture: true, onImpact: null
+        }).catch((e) => { console.warn('Bot capture animation error:', e) })
+      } else if (animPiece !== 0 && animColor !== 0) {
+        botAnimPromise = this.animationManager.animateMove({
+          from: fromSq, to: toSq, piece: animPiece, color: animColor,
+          orientation, duration: 0.28
+        }).catch((e) => { console.warn('Bot move animation error:', e) })
+      }
+
+      if (botAnimPromise) {
+        try {
+          await Promise.race([
+            botAnimPromise,
+            new Promise(resolve => setTimeout(resolve, 2000))
+          ])
+        } catch (e) {
+          // Animation timeout, continue
         }
       }
 
@@ -416,7 +490,85 @@ class Game {
     this.input.setInputEnabled(true)
   }
 
-loop(time) {
+  async executeBotFallbackMove(botSide) {
+    const legalMoves = this.engine.getLegalMoves()
+    if (legalMoves.length === 0) {
+      this.ui.showThinking(botSide, false)
+      this.botThinking = false
+      this.input.setInputEnabled(true)
+      return
+    }
+
+    const FILES = 'abcdefgh'
+    const RANKS = '12345678'
+    const fallback = legalMoves[Math.floor(Math.random() * legalMoves.length)]
+    const fbFrom = fallback & 0x3F
+    const fbTo = (fallback >> 6) & 0x3F
+    const fbPromoBits = (fallback >> 16) & 0x7
+    const promoPieceMap = { 2: 2, 3: 3, 4: 4, 5: 5 }
+    const fbPromo = promoPieceMap[fbPromoBits] || null
+
+    const pos = this.engine.getPosition()
+    const animPiece = pos.board[fbFrom]
+    const animColor = pos.colors[fbFrom]
+    const isCapture = pos.board[fbTo] !== 0
+    const orientation = this.renderer.boardRenderer.boardAppearance.orientation
+
+    const fbResult = this.engine.attemptMove(fbFrom, fbTo, fbPromo)
+    if (!fbResult.success || !fbResult.move) {
+      this.ui.showThinking(botSide, false)
+      this.botThinking = false
+      this.input.setInputEnabled(true)
+      return
+    }
+
+    this.input.clearSelection()
+    this.updateBoardAfterMove(fbResult.move)
+    this.updateHUD()
+    this.updateMoveList()
+
+    let botAnimPromise
+    if (isCapture && animPiece !== 0 && animColor !== 0) {
+      botAnimPromise = this.animationManager.animateCapture({
+        from: fbFrom, to: fbTo, piece: animPiece, color: animColor,
+        orientation, isCapture: true, onImpact: null
+      }).catch((e) => { console.warn('Bot fallback capture animation error:', e) })
+    } else if (animPiece !== 0 && animColor !== 0) {
+      botAnimPromise = this.animationManager.animateMove({
+        from: fbFrom, to: fbTo, piece: animPiece, color: animColor,
+        orientation, duration: 0.28
+      }).catch((e) => { console.warn('Bot fallback move animation error:', e) })
+    }
+
+    if (botAnimPromise) {
+      try {
+        await Promise.race([
+          botAnimPromise,
+          new Promise(resolve => setTimeout(resolve, 2000))
+        ])
+      } catch (e) {
+        // Animation timeout, continue
+      }
+    }
+
+    if (this.engine.getGameOver()) {
+      this.clock.stop()
+      this.endGame(this.engine.getGameOver())
+      return
+    }
+
+    if (this.timeControl > 0 && this.gameActive) {
+      const side = this.engine.getTurn() === 1 ? 'white' : 'black'
+      this.clock.switchSide(side)
+      this.updateClockDisplay(side)
+    }
+
+    this.ui.showThinking(botSide, false)
+    this.botThinking = false
+    this.input.setInputEnabled(true)
+  }
+
+  loop(time) {
     if (!this.running) return
 
     const rawDt = Math.min((time - (this._lastLoopTime || time)) / 1000, 0.1)
@@ -455,25 +607,33 @@ loop(time) {
 
     if (this.postProcessing) {
       const camTransform = this.animationManager.getCamera?.()
+      let hasActivePostFx = false
       if (camTransform) {
         if (camTransform.chromaticAberration > 0.01) {
           this.postProcessing.setChromatic(camTransform.chromaticAberration, 0)
+          hasActivePostFx = true
         }
         if (camTransform.vignette > 0.01) {
           this.postProcessing.setVignette(camTransform.vignette)
+          hasActivePostFx = true
         }
         if (camTransform.screenFlash?.alpha > 0.01) {
           this.postProcessing.setScreenFlash(camTransform.screenFlash.color, camTransform.screenFlash.alpha)
+          hasActivePostFx = true
         }
         if (camTransform.colorGrade) {
-          this.postProcessing.setColorGrade(
-            camTransform.colorGrade.contrast,
-            camTransform.colorGrade.saturation,
-            camTransform.colorGrade.brightness
-          )
+          const { contrast, saturation, brightness } = camTransform.colorGrade
+          if (contrast !== 0 || saturation !== 0 || brightness !== 0) {
+            this.postProcessing.setColorGrade(contrast, saturation, brightness)
+            hasActivePostFx = true
+          }
         }
       }
-      this.postProcessing.render(this.ctx)
+      if (hasActivePostFx) {
+        this.postProcessing.render(this.ctx)
+      } else {
+        this.postProcessing.reset()
+      }
     }
 
     if (this.renderer.particleSystem) {
@@ -516,6 +676,22 @@ loop(time) {
     this.ui.updateCaptured('white', whiteCaptured)
     this.ui.updateCaptured('black', blackCaptured)
     this.ui.updateTurn(this.engine.getTurn() === 1 ? 'white' : 'black')
+
+    // Update active turn on clocks
+    const activeSide = this.engine.getTurn() === 1 ? 'white' : 'black'
+    const whiteClockEl = document.getElementById('clock-bottom')
+    const blackClockEl = document.getElementById('clock-top')
+    
+    // Map active side to correct clock element based on player's color
+    if (this.playerColor === 1) {
+      // Player is white at bottom
+      if (whiteClockEl) whiteClockEl.classList.toggle('active-turn', activeSide === 'white')
+      if (blackClockEl) blackClockEl.classList.toggle('active-turn', activeSide === 'black')
+    } else {
+      // Player is black at bottom
+      if (whiteClockEl) whiteClockEl.classList.toggle('active-turn', activeSide === 'white')
+      if (blackClockEl) blackClockEl.classList.toggle('active-turn', activeSide === 'black')
+    }
   }
 
   updateMoveList() {
@@ -525,8 +701,8 @@ loop(time) {
   }
 
   updateClockDisplay(side) {
-    const time = side === 'white' ? this.clock.whiteTime : this.clock.blackTime
-    this.ui.updateClock(side, time)
+    const display = this.clock.getDisplay()
+    this.ui.updateClock(side, side === 'white' ? display.white : display.black)
   }
 
   updateBoardAfterMove(moveResult) {

@@ -9,7 +9,7 @@ import {
   KnightDarknessEffect,
   EpicClashEffect,
   RoyalDecapEffect,
-  QueenSlashEffect,
+  QueenRealitySlashEffect,
   RookPathEffect
 } from './CaptureAnimations.js'
 
@@ -93,6 +93,7 @@ export class AnimationManager {
       this.ghostPieces = [gp]
       this.pieceRenderer.ghostPiece = gp
 
+      this.pieceRenderer.moveAnim = { fromSq: from, toSq: to, isCapture: false }
       const animate = (now) => {
         const elapsed = now - gp.startTime
         const t = Math.min(elapsed / gp.duration, 1)
@@ -152,6 +153,11 @@ export class AnimationManager {
           // 40ms fade-out settle before cleanup
           const settleStart = performance.now()
           const settleAnim = (settleNow) => {
+            if (animId !== this._animationId) {
+              this.pieceRenderer.moveAnim = null
+              resolve()
+              return
+            }
             const st = Math.min((settleNow - settleStart) / 40, 1)
             const se = 1 - Math.pow(1 - st, 3)
             gp.alpha = 1 - se
@@ -160,6 +166,7 @@ export class AnimationManager {
             else {
               gp.alpha = 0; gp.isMoving = false
               this.ghostPieces = []
+              this.pieceRenderer.moveAnim = null
               this.pieceRenderer.ghostPiece = null
               resolve()
             }
@@ -193,6 +200,7 @@ export class AnimationManager {
       this.ghostPieces = [gp]
       this.pieceRenderer.ghostPiece = gp
 
+      this.pieceRenderer.moveAnim = { fromSq: from, toSq: to, isCapture: true }
       if (victimPiece !== 0) {
         const vgp = new GhostPiece(this.pieceRenderer, victimPiece, victimColor, toP.x, toP.y, toP.size)
         vgp.alpha = 1
@@ -217,7 +225,7 @@ export class AnimationManager {
           )
           break
         case CaptureTier.QUEEN_SLASH:
-          this.captureEffect = new QueenSlashEffect(
+          this.captureEffect = new QueenRealitySlashEffect(
             this.canvasRenderer, cx, cy, fromP.size, victimColor
           )
           break
@@ -270,7 +278,7 @@ export class AnimationManager {
       }
 
       if (this.captureEffect && this.captureEffect.update) {
-          this.captureEffect.update(progress)
+          try { this.captureEffect.update(progress); } catch(e) {}
         }
         if (this.captureEffect) {
           this.captureEffect.finished = progress >= 1
@@ -281,6 +289,7 @@ export class AnimationManager {
         } else {
           gp.alpha = 0
           this.ghostPieces = []
+          this.pieceRenderer.moveAnim = null
           this.pieceRenderer.ghostPiece = null
           this.pieceRenderer.victimGhostPiece = null
           this.captureEffect = null

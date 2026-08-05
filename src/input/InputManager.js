@@ -168,11 +168,11 @@ export class InputManager extends EventBus {
         from, to, piece, color, orientation, isCapture: true,
         victimPiece, victimColor,
         onImpact: null
-      }).catch(() => {})
+      }).catch((e) => { console.error('Capture animation error:', e); throw e })
     } else {
       animationPromise = this.animationManager.animateMove({
         from, to, piece, color, orientation, duration: 0.28
-      }).catch(() => {})
+      }).catch((e) => { console.warn('Move animation error:', e) })
     }
     this.currentAnimation = animationPromise
     this.emit('move', { from, to, move: result.move, animationPromise })
@@ -205,11 +205,11 @@ export class InputManager extends EventBus {
           from, to, piece, color, orientation, isCapture: true,
           victimPiece, victimColor,
           onImpact: null
-        }).catch(() => {})
+        }).catch((e) => { console.warn('Promo capture animation error:', e) })
       } else {
         animationPromise = this.animationManager.animateMove({
           from, to, piece, color, orientation, duration: 0.28
-        }).catch(() => {})
+        }).catch((e) => { console.warn('Promo move animation error:', e) })
       }
       this.currentAnimation = animationPromise
       this.emit('move', { from, to, move: result.move, animationPromise })

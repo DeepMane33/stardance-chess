@@ -98,6 +98,13 @@ export class PostProcessing {
     this._lastActiveEffects = activeEffects
     this._dirty = false
 
+    // If no effects are active, just clear stale state and skip compositing
+    if (!activeEffects) {
+      if (this.effectCtx) this.effectCtx.clearRect(0, 0, this.width, this.height)
+      if (this.offCtx) this.offCtx.clearRect(0, 0, this.width, this.height)
+      return
+    }
+
     // Copy main canvas to offscreen
     this.offCtx.drawImage(ctx.canvas, 0, 0)
 
@@ -531,6 +538,14 @@ export class PostProcessing {
     this.screenFlash = { color: [255, 255, 255], intensity: 0 }
     this.directionalBlur = { intensity: 0, angle: 0 }
     this.glitch = { intensity: 0, blockSize: 20, sliceCount: 5 }
+    this._lastActiveEffects = ''
+    this._dirty = false
+    if (this.effectCtx) {
+      this.effectCtx.clearRect(0, 0, this.width, this.height)
+    }
+    if (this.offCtx) {
+      this.offCtx.clearRect(0, 0, this.width, this.height)
+    }
   }
 
   destroy() {

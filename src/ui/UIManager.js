@@ -3,6 +3,7 @@ export class UIManager {
     this.screens = {}
     this.currentScreen = null
     this.callbacks = {}
+    this.playerSide = 'white' // 'white' or 'black' - which color the human player is
     this.init()
   }
 
@@ -12,6 +13,7 @@ export class UIManager {
       mainMenu: document.getElementById('main-menu'),
       modeSelect: document.getElementById('mode-select'),
       botDifficulty: document.getElementById('bot-difficulty'),
+      colorSelect: document.getElementById('color-select'),
       gameHud: document.getElementById('game-hud'),
       gameOver: document.getElementById('game-over-modal'),
       promotion: document.getElementById('promotion-modal'),
@@ -125,13 +127,23 @@ export class UIManager {
     this.hideScreen('gameOver')
   }
 
-  showPromotion(callback) {
+  showPromotion(callback, color = 'white') {
     const modal = this.screens.promotion
     if (!modal) return
     this.hidePromotion()
     modal.classList.add('active')
 
     const pieces = modal.querySelectorAll('.promotion-piece')
+    pieces.forEach(piece => {
+      const pieceType = piece.dataset.piece
+      const img = piece.querySelector('img')
+      if (img) {
+        const prefix = color === 'white' ? 'w' : 'b'
+        img.src = `/assets/pieces/${prefix}${pieceType}.png`
+        img.alt = `${color} ${pieceType}`
+      }
+    })
+
     const handler = (e) => {
       const piece = e.currentTarget.dataset.piece
       pieces.forEach(p => p.removeEventListener('click', handler))
@@ -150,7 +162,7 @@ export class UIManager {
       })
       this._promotionHandler = null
     }
-    this.hideScreen('promotion')
+    if (modal) modal.classList.remove('active')
   }
 
   updateElo(rating) {
@@ -170,12 +182,22 @@ export class UIManager {
     if (el) el.textContent = `${index + 1} / ${total}`
   }
 
-  updateClock(side, time) {
-    const el = document.getElementById(`clock-${side}`)
+  updateClock(side, formattedTime) {
+    // side is 'white' or 'black' (engine turn)
+    // formattedTime is the pre-formatted string from ChessClock.formatTime()
+    // HTML uses 'clock-top' and 'clock-bottom'
+    // Need to map based on player's side (this.playerSide)
+    let clockId
+    if (this.playerSide === 'white') {
+      // Player is white at bottom, opponent black at top
+      clockId = side === 'white' ? 'clock-bottom' : 'clock-top'
+    } else {
+      // Player is black at bottom, opponent white at top
+      clockId = side === 'black' ? 'clock-bottom' : 'clock-top'
+    }
+    const el = document.getElementById(clockId)
     if (el) {
-      const minutes = Math.floor(time / 60)
-      const seconds = Math.floor(time % 60)
-      el.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`
+      el.textContent = formattedTime
     }
   }
 
@@ -185,10 +207,11 @@ export class UIManager {
   }
 
   updateTurn(side) {
-    const whiteBar = document.querySelector('.player-bar.white')
-    const blackBar = document.querySelector('.player-bar.black')
-    if (whiteBar) whiteBar.classList.toggle('active', side === 'white')
-    if (blackBar) blackBar.classList.toggle('active', side === 'black')
+    const topBar = document.querySelector('.player-bar.top')
+    const bottomBar = document.querySelector('.player-bar.bottom')
+    const isTopTurn = (this.playerSide === 'white' && side === 'black') || (this.playerSide === 'black' && side === 'white')
+    if (topBar) topBar.classList.toggle('active', isTopTurn)
+    if (bottomBar) bottomBar.classList.toggle('active', !isTopTurn)
   }
 
   showShare(fen) {
@@ -243,6 +266,7 @@ export class UIManager {
   }
 
   setPlayerSide(side) {
+    this.playerSide = side // 'white' or 'black' - human player's color
     const topName = document.querySelector('.player-bar.top .player-name')
     const bottomName = document.querySelector('.player-bar.bottom .player-name')
     if (topName) topName.dataset.side = side === 'white' ? 'black' : 'white'

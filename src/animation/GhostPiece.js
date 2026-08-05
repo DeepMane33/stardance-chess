@@ -73,7 +73,7 @@ export class GhostPiece {
 
   drawShadow(ctx) {
     const cx = this.x + this.size / 2
-    const shadowY = this.y + this.size + 4 - this.height * 22 * 5.5
+    const shadowY = this.y + this.size + 4 - this.height * 22 * 0.55
     const shadowScale = 0.45 + this.height * 0.18
     const shadowW = this.size * shadowScale
     const shadowH = this.size * 0.055 * (1 + this.height * 0.6)

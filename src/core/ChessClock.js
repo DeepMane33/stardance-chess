@@ -83,12 +83,15 @@ export class ChessClock {
     }
   }
 
-  formatTime(seconds) {
+formatTime(seconds) {
     if (this.initialTime === 0) return '--:--'
-    const s = Math.floor(seconds + 0.05)
+    const s = Math.floor(seconds + 0.5)
     if (s < 60) {
       const tenths = Math.floor((seconds % 1) * 10)
-      return `${s}.${tenths}`
+      // Show at least 1 tenth if time > 0 but rounds to 0 seconds
+      const displaySeconds = s === 0 && seconds > 0 ? 1 : s
+      const displayTenths = s === 0 && seconds > 0 ? 0 : tenths
+      return `${displaySeconds}.${displayTenths}`
     }
     const mins = Math.floor(s / 60)
     const secs = s % 60

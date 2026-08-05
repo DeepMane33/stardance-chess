@@ -77,19 +77,43 @@ export class Camera {
     this.zoom += (this.targetZoom - this.zoom) * this.zoomLerpSpeed * dt60
     this.rotation += (this.targetRotation - this.rotation) * this.rotationLerpSpeed * dt60
 
+    // Hard snap to target when very close - prevents floating point drift
     if (Math.abs(this.targetX - this.x) < 0.01) this.x = this.targetX
     if (Math.abs(this.targetY - this.y) < 0.01) this.y = this.targetY
     if (Math.abs(this.targetZoom - this.zoom) < 0.001) this.zoom = this.targetZoom
     if (Math.abs(this.targetRotation - this.rotation) < 0.001) this.rotation = this.targetRotation
 
-    this.isActive = this.shakeTimer > 0 ||
-                    Math.abs(this.zoom - 1) > 0.001 ||
-                    Math.abs(this.rotation) > 0.001 ||
-                    Math.abs(this.x - this.boardCenterX) > 0.01 ||
-                    Math.abs(this.y - this.boardCenterY) > 0.01 ||
-                    this.chromaticAberration > 0.001 ||
-                    this.vignette > 0.001 ||
-                    this.screenFlash?.alpha > 0.001
+    // Force reset effects to zero when they should be
+    if (this.chromaticAberration < 0.001) this.chromaticAberration = 0
+    if (this.vignette < 0.001) this.vignette = 0
+    if ((this.screenFlash?.alpha || 0) < 0.001) this.screenFlash = { color: [255,255,255], alpha: 0 }
+
+    // Force reset to board center when truly idle - prevents permanent isActive=true
+    const atCenter = Math.abs(this.x - this.boardCenterX) < 0.5 && Math.abs(this.y - this.boardCenterY) < 0.5
+    const atDefaultZoom = Math.abs(this.zoom - 1) < 0.001
+    const atDefaultRotation = Math.abs(this.rotation) < 0.001
+    const noEffects = this.chromaticAberration <= 0 && this.vignette <= 0 && (this.screenFlash?.alpha || 0) <= 0
+
+    if (atCenter && atDefaultZoom && atDefaultRotation && noEffects && this.shakeTimer <= 0) {
+      this.x = this.boardCenterX
+      this.y = this.boardCenterY
+      this.zoom = 1
+      this.rotation = 0
+      this.targetX = this.boardCenterX
+      this.targetY = this.boardCenterY
+      this.targetZoom = 1
+      this.targetRotation = 0
+      this.isActive = false
+    } else {
+      this.isActive = this.shakeTimer > 0 ||
+                      Math.abs(this.zoom - 1) > 0.001 ||
+                      Math.abs(this.rotation) > 0.001 ||
+                      Math.abs(this.x - this.boardCenterX) > 0.01 ||
+                      Math.abs(this.y - this.boardCenterY) > 0.01 ||
+                      this.chromaticAberration > 0.001 ||
+                      this.vignette > 0.001 ||
+                      this.screenFlash?.alpha > 0.001
+    }
   }
 
   panTo(x, y, duration = 0.3) {
@@ -139,7 +163,7 @@ export class Camera {
     ctx.translate(this.shakeOffset.x, this.shakeOffset.y)
     ctx.scale(this.zoom, this.zoom)
     ctx.rotate(this.rotation)
-    ctx.translate(-cx - this.x, -cy - this.y)
+    ctx.translate(-this.x, -this.y)
   }
 
   restoreTransform(ctx) {
