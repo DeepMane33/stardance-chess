@@ -57,7 +57,7 @@ export class GhostPiece {
       const t = i / this.trail.length
       const prev = this.trail[i - 1]
       const curr = this.trail[i]
-      const alpha = t * 0.12 * (1 - this.height * 0.5)
+      const alpha = t * 0.12 * (1 - this.height * 0.5) * this.alpha
 
       ctx.globalAlpha = alpha
       ctx.strokeStyle = trailColor

@@ -76,18 +76,19 @@ export class Renderer {
 
     const pr = this.pieceRenderer
 
-    // Ghost cleanup is handled by AnimationManager; never nullify mid-animation
-    // (capture effects like Sonido/KnightDarkness may set alpha near 0 intentionally)
+    // During animations, skip the source square (ghost covers it)
+    // For captures, also skip destination (both pieces hidden, ghost handles visuals)
+    // SAFETY: Only hide squares if there's an ACTIVE ghost piece rendering them.
+    // This prevents pieces from permanently vanishing if animation state gets corrupted.
+    const ghostActive = pr.ghostPiece && pr.ghostPiece.alpha > 0.01 && pr.moveAnim
 
     for (let sq = 0; sq < 64; sq++) {
       const piece = board[sq]
       const color = colors[sq]
       if (piece === 0) continue
 
-      // During animations, skip the source square (ghost covers it)
-      // For captures, also skip destination (both pieces hidden, ghost handles visuals)
-      if (pr.moveAnim) {
-        // Hide engine piece during animation — ghost covers both squares
+      // Hide engine pieces at from/to only when a ghost is actively animating them
+      if (ghostActive && pr.moveAnim) {
         if (sq === pr.moveAnim.fromSq || sq === pr.moveAnim.toSq) continue
       }
 
@@ -113,6 +114,10 @@ export class Renderer {
     if (victimGhost && victimGhost.alpha > 0.01) {
       if (captureEffects?.tier === CaptureTier.PAWN_SPLIT && captureEffects?.effect) {
         this.renderSplitVictim(ctx, victimGhost, captureEffects.effect)
+      } else if (captureEffects?.tier === CaptureTier.QUEEN_SONIDO && captureEffects?.effect) {
+        this.renderSonidoSplit(ctx, victimGhost, captureEffects.effect)
+      } else if (captureEffects?.tier === CaptureTier.BISHOP_CUT && captureEffects?.effect) {
+        this.renderBishopSplit(ctx, victimGhost, captureEffects.effect)
       } else {
         victimGhost.draw(ctx)
       }
@@ -167,6 +172,88 @@ export class Renderer {
     ctx.rect(cx, cy - pieceSize * 0.5, halfW, pieceSize)
     ctx.clip()
     ctx.translate(rightOffsetX, rightOffsetY)
+    victimGhost.draw(ctx)
+    ctx.restore()
+  }
+
+  renderBishopSplit(ctx, victimGhost, effect) {
+    // Draw the victim split cleanly along the bishop's diagonal slash line.
+    // The two halves glide perpendicular to the slash as they separate, keeping
+    // a smooth editorial "cut" — no debris, just a clean geometric slice.
+    if (effect.fadeAlpha <= 0.01) return
+
+    const ss = effect.pieceSize
+    const half = ss * 0.62
+    const cx = effect.cx
+    const cy = effect.cy
+    const gap = effect.splitGap
+
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.rotate(effect.slashAngle)
+    ctx.globalAlpha = effect.fadeAlpha
+
+    // Upper half, shifted perpendicular by -gap
+    ctx.save()
+    ctx.translate(0, -gap)
+    ctx.beginPath()
+    ctx.rect(-half, -half, half * 2, half)
+    ctx.clip()
+    ctx.rotate(-effect.slashAngle)
+    ctx.translate(-cx, -cy)
+    victimGhost.draw(ctx)
+    ctx.restore()
+
+    // Lower half, shifted perpendicular by +gap
+    ctx.save()
+    ctx.translate(0, gap)
+    ctx.beginPath()
+    ctx.rect(-half, 0, half * 2, half)
+    ctx.clip()
+    ctx.rotate(-effect.slashAngle)
+    ctx.translate(-cx, -cy)
+    victimGhost.draw(ctx)
+    ctx.restore()
+
+    ctx.restore()
+  }
+
+  renderSonidoSplit(ctx, victimGhost, effect) {
+    // Draw the real victim piece torn along the slash line (Bleach sonido).
+    // Offsets perpendicular to the attack angle so the two halves fly apart.
+    if (effect.victimAlpha <= 0.01 || effect.splitGap <= 0.5) return
+
+    const ss = effect.pieceSize
+    const perpX = -Math.sin(effect.attackAngle)
+    const perpY = Math.cos(effect.attackAngle)
+    const cx = effect.cx
+    const cy = effect.cy
+
+    // Half 1 (negative perpendicular side)
+    ctx.save()
+    ctx.globalAlpha = effect.victimAlpha
+    ctx.translate(-perpX * effect.splitGap, -perpY * effect.splitGap)
+    ctx.beginPath()
+    ctx.moveTo(cx - Math.cos(effect.attackAngle) * ss, cy - Math.sin(effect.attackAngle) * ss)
+    ctx.lineTo(cx + Math.cos(effect.attackAngle) * ss, cy + Math.sin(effect.attackAngle) * ss)
+    ctx.lineTo(cx + Math.cos(effect.attackAngle) * ss + perpX * ss * 2, cy + Math.sin(effect.attackAngle) * ss + perpY * ss * 2)
+    ctx.lineTo(cx - Math.cos(effect.attackAngle) * ss + perpX * ss * 2, cy - Math.sin(effect.attackAngle) * ss + perpY * ss * 2)
+    ctx.closePath()
+    ctx.clip()
+    victimGhost.draw(ctx)
+    ctx.restore()
+
+    // Half 2 (positive perpendicular side)
+    ctx.save()
+    ctx.globalAlpha = effect.victimAlpha
+    ctx.translate(perpX * effect.splitGap, perpY * effect.splitGap)
+    ctx.beginPath()
+    ctx.moveTo(cx - Math.cos(effect.attackAngle) * ss, cy - Math.sin(effect.attackAngle) * ss)
+    ctx.lineTo(cx + Math.cos(effect.attackAngle) * ss, cy + Math.sin(effect.attackAngle) * ss)
+    ctx.lineTo(cx + Math.cos(effect.attackAngle) * ss - perpX * ss * 2, cy + Math.sin(effect.attackAngle) * ss - perpY * ss * 2)
+    ctx.lineTo(cx - Math.cos(effect.attackAngle) * ss - perpX * ss * 2, cy - Math.sin(effect.attackAngle) * ss - perpY * ss * 2)
+    ctx.closePath()
+    ctx.clip()
     victimGhost.draw(ctx)
     ctx.restore()
   }

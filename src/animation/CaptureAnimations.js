@@ -26,7 +26,12 @@ export const CaptureTier = {
   ROYAL_DECAP: 'royal_decap',
   QUEEN_SLASH: 'queen_slash',
   QUEEN_SONIDO: 'queen_sonido',
+  ROOK_PATH: 'rook_path',
+  BISHOP_CUT: 'bishop_cut',
+  KING_TAKE: 'king_take',
 };
+const BIG_PIECES = new Set([Piece.ROOK, Piece.QUEEN])
+
 function isBigPiece(piece) {
   return BIG_PIECES.has(piece)
 }
@@ -45,17 +50,24 @@ export function resolveCaptureTier(attackerPiece, victimPiece, isCheckmate = fal
     return CaptureTier.KNIGHT_DARKNESS
   }
 
-  // Queen slash (board-split): only when queen attacks edge-to-edge across the board
-  // Queen sonido (glitch-teleport + sword): internal non-edge captures
-  if (attackerPiece === Piece.QUEEN && victimPiece !== Piece.PAWN) {
-    const attackerFile = attackerSq % 8
-    const attackerRank = Math.floor(attackerSq / 8)
-    const victimFile = victimSq % 8
-    const victimRank = Math.floor(victimSq / 8)
-    const isEdge = (f) => f === 0 || f === 7
-    const attackerOnEdge = isEdge(attackerFile) || isEdge(attackerRank)
-    const victimOnEdge = isEdge(victimFile) || isEdge(victimRank)
-    if (attackerOnEdge && victimOnEdge) {
+  // Queen slash (board-split): ONLY when the queen travels edge-to-edge across
+// the entire board (start on one board end, land on the opposite end). Any other
+// capture is the sonido teleport — the board itself should never be split for a
+// short / in-between capture.
+  if (attackerPiece === Piece.QUEEN) {
+    const af = attackerSq % 8
+    const ar = Math.floor(attackerSq / 8)
+    const vf = victimSq % 8
+    const vr = Math.floor(victimSq / 8)
+    const fileSwap = (af === 0 && vf === 7) || (af === 7 && vf === 0)
+    const rankSwap = (ar === 0 && vr === 7) || (ar === 7 && vr === 0)
+    // A legal queen move either swings a full width (7 files, rank fixed),
+    // a full height (7 ranks, file fixed), or a full-board diagonal. Check the
+    // squared distance matches a whole-board span with opposite edges.
+    const wholeBoard =
+      (Math.abs(vf - af) === 7 && fileSwap) ||
+      (Math.abs(vr - ar) === 7 && rankSwap)
+    if (wholeBoard) {
       return CaptureTier.QUEEN_SLASH
     }
     return CaptureTier.QUEEN_SONIDO
@@ -64,6 +76,16 @@ export function resolveCaptureTier(attackerPiece, victimPiece, isCheckmate = fal
   // Rook path: rook captures anything
   if (attackerPiece === Piece.ROOK) {
     return CaptureTier.ROOK_PATH
+  }
+
+  // Bishop cut: bishop captures anything — a precise diagonal "edit" slice
+  if (attackerPiece === Piece.BISHOP) {
+    return CaptureTier.BISHOP_CUT
+  }
+
+  // King take: a king captures anything — royal aura + banishing shockwave
+  if (attackerPiece === Piece.KING) {
+    return CaptureTier.KING_TAKE
   }
 
   // Pawn split: pawn captures anything
@@ -1682,6 +1704,19 @@ export class QueenSonidoEffect {
     this._aFired = false
     this._sFired = false
 
+    // === SOLIDITY UPGRADES ===
+    // When true, the Renderer draws the REAL victim piece torn in two along the
+    // slash line; this effect only draws the garble rings, sword, crack glow and
+    // debris (no fake silhouette).
+    this._useRealPiece = true
+    // Sonic-dash trail that shoots from source toward the target during vanish
+    this.dashTrail = {
+      x: fromX + pieceSize / 2, y: fromY + pieceSize / 2,
+      tx: centerX, ty: centerY, p: 0, alpha: 0
+    }
+    // Appear scale pulse
+    this.appearScale = 0
+
     QueenSonidoEffect._initNoise()
   }
 
@@ -1702,7 +1737,16 @@ export class QueenSonidoEffect {
     }
     if (p >= 0.04 && !this._vFired) { this._vFired = true; this._onVanish?.() }
 
-    // â”€â”€ GAP (12â€“30%) â€” nothing â”€â”€
+    // â”€â”€ GAP (12â€“30%) â€” sonic dash streaks from source to target â”€â”€
+    if (p < 0.28) {
+      this.dashTrail.p = p / 0.28
+      this.dashTrail.alpha = Math.sin(Math.min(p / 0.28, 1) * Math.PI) * 1.0
+    } else {
+      this.dashTrail.p = 1
+      this.dashTrail.alpha = Math.max(0, this.dashTrail.alpha - 0.06)
+    }
+    this.dashTrail.x = this.fromX + this.pieceSize / 2 + (this.cx - this.fromX - this.pieceSize / 2) * this.dashTrail.p
+    this.dashTrail.y = this.fromY + this.pieceSize / 2 + (this.cy - this.fromY - this.pieceSize / 2) * this.dashTrail.p
 
     // â”€â”€ SONIDO APPEAR (30â€“45%) â”€â”€
     if (p >= 0.30 && p < 0.38) {
@@ -1726,6 +1770,8 @@ export class QueenSonidoEffect {
       this.appearAlpha = 1
     }
     if (p >= 0.32 && !this._aFired) { this._aFired = true; this._onAppear?.() }
+
+    this.appearScale = p < 0.30 ? 0.85 : (p < 0.46 ? 1 + Math.sin(((p - 0.30) / 0.16) * Math.PI) * 0.12 : 1)
 
     // â”€â”€ SWORD SLASH (45â€“65%) â”€â”€
     if (p >= 0.45 && p < 0.65) {
@@ -1782,37 +1828,104 @@ export class QueenSonidoEffect {
 
     ctx.save()
 
-    // â”€â”€ 1. VANISH GLITCH (at source) â”€â”€
+    // â”€â”€ 1. VANISH GLITCH (at source) — Hollow sonido shatter â”€â”€
     if (this.vanishAlpha > 0.01) {
+      const vx = this.fromX + ss / 2
+      const vy = this.fromY + ss / 2
+
+      // Shatter / static burst ring around the queen
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      const burstR = ss * (1.4 - this.vanishAlpha * 0.9)
+      const bg = ctx.createRadialGradient(vx, vy, 0, vx, vy, burstR)
+      bg.addColorStop(0, `rgba(150,220,255,${0.55 * this.vanishAlpha})`)
+      bg.addColorStop(0.5, `rgba(120,180,255,${0.25 * this.vanishAlpha})`)
+      bg.addColorStop(1, 'rgba(120,180,255,0)')
+      ctx.fillStyle = bg
+      ctx.beginPath()
+      ctx.arc(vx, vy, burstR, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+
+      // Glitch displacement slices (cyan/white) over her body
       for (const b of this.vanishBlocks) {
         if (this.vanishAlpha < b.delay && this.vanishAlpha < 0.9) continue
         ctx.save()
-        ctx.globalAlpha = this.vanishAlpha * 0.5
-        ctx.fillStyle = 'rgba(180,170,210,0.4)'
+        ctx.globalAlpha = this.vanishAlpha * 0.6
+        ctx.fillStyle = Math.random() > 0.5 ? 'rgba(170,225,255,0.55)' : 'rgba(255,255,255,0.5)'
         ctx.fillRect(
           this.fromX - ss * 0.35 + b.xSh * this.vanishAlpha,
-          this.fromY + b.yOff, ss * 0.8 + 4, b.h
+          this.fromY + b.yOff, ss * 0.8 + 6, b.h
         )
         ctx.restore()
       }
+
+      // Cyan energy outline hugging her silhouette as she breaks apart
+      ctx.save()
+      ctx.globalAlpha = this.vanishAlpha * 0.5
+      ctx.strokeStyle = '#9fdcff'
+      ctx.lineWidth = 1.6
+      ctx.shadowColor = '#59c4ff'
+      ctx.shadowBlur = 10
+      ctx.strokeRect(this.fromX + 1 - this.vanishAlpha * 2, this.fromY + 1 - this.vanishAlpha * 2, ss - 2, ss - 2)
+      ctx.restore()
     }
 
-    // â”€â”€ 2. SONIDO APPEAR RING â”€â”€
+    // â”€â”€ 1.5 SONIC DASH STREAK (source â†’ target) â”€â”€
+    if (this.dashTrail.alpha > 0.02) {
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      const grd = ctx.createRadialGradient(this.dashTrail.x, this.dashTrail.y, 0, this.dashTrail.x, this.dashTrail.y, ss * 0.5)
+      grd.addColorStop(0, `rgba(215,205,255,${0.9 * this.dashTrail.alpha})`)
+      grd.addColorStop(1, 'rgba(215,205,255,0)')
+      ctx.fillStyle = grd
+      ctx.beginPath()
+      ctx.arc(this.dashTrail.x, this.dashTrail.y, ss * 0.5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.globalAlpha = this.dashTrail.alpha * 0.75
+      ctx.strokeStyle = '#d8ccff'
+      ctx.lineWidth = ss * 0.10
+      ctx.lineCap = 'round'
+      ctx.shadowColor = '#b4a4ff'
+      ctx.shadowBlur = 20
+      const ang = Math.atan2(this.cy - this.fromY, this.cx - this.fromX)
+      const len = ss * (0.5 + this.dashTrail.p * 0.9)
+      ctx.beginPath()
+      ctx.moveTo(this.dashTrail.x - Math.cos(ang) * len, this.dashTrail.y - Math.sin(ang) * len)
+      ctx.lineTo(this.dashTrail.x + Math.cos(ang) * len * 0.2, this.dashTrail.y + Math.sin(ang) * len * 0.2)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // â”€â”€ 2. SONIDO APPEAR BURST (at target) â”€â”€
     if (this.ringAlpha > 0.01 && this.ringRadius > 0.5) {
       ctx.save()
-      ctx.globalAlpha = this.ringAlpha * 0.6
-      ctx.strokeStyle = '#c8b8f8'
+      ctx.globalCompositeOperation = 'screen'
+      // Filling static pop
+      const pop = ctx.createRadialGradient(cx, cy, 0, cx, cy, this.ringRadius * 1.3)
+      pop.addColorStop(0, `rgba(230,250,255,${0.5 * this.appearAlpha})`)
+      pop.addColorStop(0.5, `rgba(140,220,255,${0.3 * this.appearAlpha})`)
+      pop.addColorStop(1, 'rgba(140,220,255,0)')
+      ctx.fillStyle = pop
+      ctx.beginPath()
+      ctx.arc(cx, cy, this.ringRadius * 1.3, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+
+      ctx.save()
+      ctx.globalAlpha = this.ringAlpha * 0.7
+      ctx.strokeStyle = '#9fdcff'
       ctx.lineWidth = 4
-      ctx.shadowColor = '#b0a0e8'
-      ctx.shadowBlur = 16
+      ctx.shadowColor = '#59c4ff'
+      ctx.shadowBlur = 18
       ctx.beginPath()
       ctx.arc(cx, cy, this.ringRadius, 0, Math.PI * 2)
       ctx.stroke()
       // Inner brighter ring
-      ctx.globalAlpha = this.ringAlpha * 0.4
-      ctx.strokeStyle = '#e8e0ff'
+      ctx.globalAlpha = this.ringAlpha * 0.5
+      ctx.strokeStyle = '#ffffff'
       ctx.lineWidth = 1.5
-      ctx.shadowBlur = 8
+      ctx.shadowBlur = 10
       ctx.beginPath()
       ctx.arc(cx, cy, this.ringRadius * 0.8, 0, Math.PI * 2)
       ctx.stroke()
@@ -1826,7 +1939,7 @@ export class QueenSonidoEffect {
         if (this.appearAlpha < b.delay && this.appearAlpha < 0.9) continue
         ctx.save()
         ctx.globalAlpha = this.appearAlpha * 0.5
-        ctx.fillStyle = 'rgba(200,180,240,0.35)'
+        ctx.fillStyle = Math.random() > 0.5 ? 'rgba(170,225,255,0.45)' : 'rgba(255,255,255,0.4)'
         ctx.fillRect(
           cx - ss * 0.4 + b.xSh * this.appearAlpha,
           cy + b.yOff, ss * 0.8 + 4, b.h
@@ -1837,11 +1950,11 @@ export class QueenSonidoEffect {
       // Static noise overlay at target
       if (this.staticAlpha > 0.01 && QueenSonidoEffect._noiseCanvas) {
         ctx.save()
-        ctx.globalAlpha = this.staticAlpha * 0.15
+        ctx.globalAlpha = this.staticAlpha * 0.28
         const nw = 128, nh = 128
-        const sx = cx - ss * 0.6
-        const sy = cy - ss * 0.6
-        ctx.drawImage(QueenSonidoEffect._noiseCanvas, sx, sy, ss * 1.2, ss * 1.2)
+        const sx = cx - ss * 0.6 * this.appearScale
+        const sy = cy - ss * 0.6 * this.appearScale
+        ctx.drawImage(QueenSonidoEffect._noiseCanvas, sx, sy, ss * 1.2 * this.appearScale, ss * 1.2 * this.appearScale)
         ctx.restore()
       }
     }
@@ -1850,12 +1963,12 @@ export class QueenSonidoEffect {
     if (this.appearFlash > 0.01) {
       ctx.save()
       ctx.globalAlpha = this.appearFlash
-      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, ss * 0.8)
-      grad.addColorStop(0, 'rgba(240,230,255,0.9)')
-      grad.addColorStop(1, 'rgba(240,230,255,0)')
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, ss * 0.9 * this.appearScale)
+      grad.addColorStop(0, 'rgba(240,252,255,0.95)')
+      grad.addColorStop(1, 'rgba(180,235,255,0)')
       ctx.fillStyle = grad
       ctx.beginPath()
-      ctx.arc(cx, cy, ss * 0.8, 0, Math.PI * 2)
+      ctx.arc(cx, cy, ss * 0.9 * this.appearScale, 0, Math.PI * 2)
       ctx.fill()
       ctx.restore()
     }
@@ -1913,8 +2026,8 @@ export class QueenSonidoEffect {
     ctx.globalAlpha = this.swordAlpha
 
     // â”€â”€ Blade body (tapered polygon) â”€â”€
-    const bwBase = 2.8  // width at base
-    const bwMid  = 1.2  // width at midpoint
+    const bwBase = 3.4  // width at base
+    const bwMid  = 1.6  // width at midpoint
     const bwTip  = 0.3  // width at tip
     const midX = pivotX + Math.cos(angle) * bladeLen * 0.45
     const midY = pivotY + Math.sin(angle) * bladeLen * 0.45
@@ -1928,26 +2041,35 @@ export class QueenSonidoEffect {
     ctx.closePath()
 
     const bladeGrad = ctx.createLinearGradient(pivotX, pivotY, tipX, tipY)
-    bladeGrad.addColorStop(0, '#c0c0d0')
-    bladeGrad.addColorStop(0.4, '#d8d8e8')
-    bladeGrad.addColorStop(0.8, '#e8e8f4')
+    bladeGrad.addColorStop(0, '#d8d8e8')
+    bladeGrad.addColorStop(0.4, '#f0f0fa')
+    bladeGrad.addColorStop(0.8, '#f8f8ff')
     bladeGrad.addColorStop(1, '#ffffff')
     ctx.fillStyle = bladeGrad
     ctx.fill()
 
-    ctx.strokeStyle = '#888898'
-    ctx.lineWidth = 0.7
+    ctx.strokeStyle = '#707088'
+    ctx.lineWidth = 0.8
     ctx.stroke()
 
     // â”€â”€ Blade glow during swing â”€â”€
     if (t > 0.05 && t < 0.9) {
       ctx.save()
-      ctx.globalAlpha = 0.5
-      ctx.strokeStyle = '#c0d0ff'
-      ctx.lineWidth = ss * 0.12
+      ctx.globalAlpha = 0.65
+      ctx.strokeStyle = '#cfe0ff'
+      ctx.lineWidth = ss * 0.15
       ctx.lineCap = 'round'
-      ctx.shadowColor = '#a0b8ff'
-      ctx.shadowBlur = 14
+      ctx.shadowColor = '#a8c8ff'
+      ctx.shadowBlur = 24
+      ctx.beginPath()
+      ctx.moveTo(pivotX, pivotY)
+      ctx.lineTo(tipX, tipY)
+      ctx.stroke()
+      // Bright inner core
+      ctx.globalAlpha = 0.85
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = ss * 0.04
+      ctx.shadowBlur = 12
       ctx.beginPath()
       ctx.moveTo(pivotX, pivotY)
       ctx.lineTo(tipX, tipY)
@@ -1956,9 +2078,9 @@ export class QueenSonidoEffect {
     }
 
     // â”€â”€ Center ridge â”€â”€
-    ctx.globalAlpha = this.swordAlpha * 0.7
+    ctx.globalAlpha = this.swordAlpha * 0.8
     ctx.strokeStyle = '#ffffff'
-    ctx.lineWidth = 0.6
+    ctx.lineWidth = 0.7
     ctx.beginPath()
     ctx.moveTo(pivotX, pivotY)
     ctx.lineTo(tipX, tipY)
@@ -2085,33 +2207,35 @@ export class QueenSonidoEffect {
 
     // â”€â”€ TOP HALF â”€â”€
     if (halfGap > 0.5) {
-      ctx.save()
-      ctx.globalAlpha = this.victimAlpha
-      ctx.translate(-perpX * halfGap, -perpY * halfGap)
-      ctx.beginPath()
-      // Clip everything on one side of the cut line
-      ctx.moveTo(cx - Math.cos(this.attackAngle) * ss, cy - Math.sin(this.attackAngle) * ss)
-      ctx.lineTo(cx + Math.cos(this.attackAngle) * ss, cy + Math.sin(this.attackAngle) * ss)
-      ctx.lineTo(cx + Math.cos(this.attackAngle) * ss + perpX * ss * 2, cy + Math.sin(this.attackAngle) * ss + perpY * ss * 2)
-      ctx.lineTo(cx - Math.cos(this.attackAngle) * ss + perpX * ss * 2, cy - Math.sin(this.attackAngle) * ss + perpY * ss * 2)
-      ctx.closePath()
-      ctx.clip()
-      this._drawPieceSilhouette(ctx, cx, cy)
-      ctx.restore()
+      if (!this._useRealPiece) {
+        ctx.save()
+        ctx.globalAlpha = this.victimAlpha
+        ctx.translate(-perpX * halfGap, -perpY * halfGap)
+        ctx.beginPath()
+        // Clip everything on one side of the cut line
+        ctx.moveTo(cx - Math.cos(this.attackAngle) * ss, cy - Math.sin(this.attackAngle) * ss)
+        ctx.lineTo(cx + Math.cos(this.attackAngle) * ss, cy + Math.sin(this.attackAngle) * ss)
+        ctx.lineTo(cx + Math.cos(this.attackAngle) * ss + perpX * ss * 2, cy + Math.sin(this.attackAngle) * ss + perpY * ss * 2)
+        ctx.lineTo(cx - Math.cos(this.attackAngle) * ss + perpX * ss * 2, cy - Math.sin(this.attackAngle) * ss + perpY * ss * 2)
+        ctx.closePath()
+        ctx.clip()
+        this._drawPieceSilhouette(ctx, cx, cy)
+        ctx.restore()
 
-      // â”€â”€ BOTTOM HALF â”€â”€
-      ctx.save()
-      ctx.globalAlpha = this.victimAlpha
-      ctx.translate(perpX * halfGap, perpY * halfGap)
-      ctx.beginPath()
-      ctx.moveTo(cx - Math.cos(this.attackAngle) * ss, cy - Math.sin(this.attackAngle) * ss)
-      ctx.lineTo(cx + Math.cos(this.attackAngle) * ss, cy + Math.sin(this.attackAngle) * ss)
-      ctx.lineTo(cx + Math.cos(this.attackAngle) * ss - perpX * ss * 2, cy + Math.sin(this.attackAngle) * ss - perpY * ss * 2)
-      ctx.lineTo(cx - Math.cos(this.attackAngle) * ss - perpX * ss * 2, cy - Math.sin(this.attackAngle) * ss - perpY * ss * 2)
-      ctx.closePath()
-      ctx.clip()
-      this._drawPieceSilhouette(ctx, cx, cy)
-      ctx.restore()
+        // â”€â”€ BOTTOM HALF â”€â”€
+        ctx.save()
+        ctx.globalAlpha = this.victimAlpha
+        ctx.translate(perpX * halfGap, perpY * halfGap)
+        ctx.beginPath()
+        ctx.moveTo(cx - Math.cos(this.attackAngle) * ss, cy - Math.sin(this.attackAngle) * ss)
+        ctx.lineTo(cx + Math.cos(this.attackAngle) * ss, cy + Math.sin(this.attackAngle) * ss)
+        ctx.lineTo(cx + Math.cos(this.attackAngle) * ss - perpX * ss * 2, cy + Math.sin(this.attackAngle) * ss - perpY * ss * 2)
+        ctx.lineTo(cx - Math.cos(this.attackAngle) * ss - perpX * ss * 2, cy - Math.sin(this.attackAngle) * ss - perpY * ss * 2)
+        ctx.closePath()
+        ctx.clip()
+        this._drawPieceSilhouette(ctx, cx, cy)
+        ctx.restore()
+      }
     }
   }
 
@@ -2612,135 +2736,210 @@ export class RookPathEffect {
     this.toY = toY
     this.pieceSize = pieceSize
     this.victimColor = victimColor
-    this.duration = 1.0
+    this.duration = 1.15
     this.finished = false
 
-    this.pathProgress = 0
-    this.pathGlow = 0
-    this.energyBallX = fromX
-    this.energyBallY = fromY
-    this.energyBallScale = 1
+    // Chidori state
+    this.pathProgress = 0      // 0-1 lightning channel forming
+    this.rushProgress = 0      // 0-1 chidori drill rushing to target
+    this.drillX = fromX
+    this.drillY = fromY
+    this.drillScale = 1
     this.impactFlash = 0
     this.impactShake = 0
-    this.shockwaveProgress = 0
-    this.ringProgress = 0
+    this.victBurn = 0          // 0-1 victim electrocuted to dust (drives renderer fade)
     this.boardDarken = 0
     this.vignette = 0
+    this.time = 0
 
-    // Path particles
-    this.pathParticles = []
-    for (let i = 0; i < 16; i++) {
-      this.pathParticles.push({
-        offset: i / 16,
-        size: pieceSize * (0.04 + Math.random() * 0.06),
-        alpha: 0.6 + Math.random() * 0.4,
-        speed: 0.8 + Math.random() * 0.4
+    // Jagged lightning channel from source to target
+    this.lightning = this._generateLightning()
+
+    // Ambient crackle arcs hugging the path (seeded)
+    this.arcs = []
+    for (let i = 0; i < 7; i++) {
+      this.arcs.push({
+        seed: Math.random() * 10
       })
     }
 
-    // Impact debris
-    this.debris = []
-    for (let i = 0; i < 15; i++) {
-      const angle = (Math.PI * 2 * i) / 15 + (Math.random() - 0.5) * 0.5
-      const speed = 60 + Math.random() * 200
-      this.debris.push({
-        x: toX + pieceSize / 2,
-        y: toY + pieceSize / 2,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 30 - Math.random() * 60,
-        size: pieceSize * (0.04 + Math.random() * 0.08),
-        rotation: Math.random() * Math.PI * 2,
-        rotationSpeed: (Math.random() - 0.5) * 20,
-        alpha: 1,
-        gravity: 300 + Math.random() * 200,
-        color: ['#ffd700', '#ff6600', '#ffffff', '#ff4444'][Math.floor(Math.random() * 4)],
-        shape: ['square', 'diamond'][Math.floor(Math.random() * 2)]
+    // Charging sparks
+    this.sparks = []
+
+    // Electric cage arcs around the victim during electrocution
+    this.cage = []
+    for (let i = 0; i < 8; i++) {
+      const a = (Math.PI * 2 * i) / 8 + (Math.random() - 0.5) * 0.7
+      this.cage.push({
+        angle: a,
+        dist: pieceSize * (0.45 + Math.random() * 0.2),
+        len: pieceSize * (0.3 + Math.random() * 0.5)
+      })
+    }
+
+    // Ash / dust ejected when the victim is burned to dust
+    const cxs = toX + pieceSize / 2
+    const cys = toY + pieceSize / 2
+    this.dust = []
+    for (let i = 0; i < 36; i++) {
+      const a = (Math.PI * 2 * i) / 36 + (Math.random() - 0.5) * 0.9
+      const spd = 20 + Math.random() * 95
+      const life = 0.45 + Math.random() * 0.65
+      this.dust.push({
+        x: cxs + (Math.random() - 0.5) * pieceSize * 0.5,
+        y: cys + (Math.random() - 0.5) * pieceSize * 0.5,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd - 18,
+        size: pieceSize * (0.018 + Math.random() * 0.05),
+        life,
+        maxLife: life,
+        alpha: 0,
+        grav: 55 + Math.random() * 85,
+        color: Math.random() > 0.4 ? '#cfd6e6' : '#6a7488'
       })
     }
   }
 
-  start() {
-    // Nothing special needed
+  _generateLightning() {
+    const pts = []
+    const sx = this.fromX + this.pieceSize / 2
+    const sy = this.fromY + this.pieceSize / 2
+    const ex = this.toX + this.pieceSize / 2
+    const ey = this.toY + this.pieceSize / 2
+    const dx = ex - sx
+    const dy = ey - sy
+    const len = Math.hypot(dx, dy) || 1
+    const px = -dy / len
+    const py = dx / len
+    const segs = 12
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs
+      let x = sx + dx * t
+      let y = sy + dy * t
+      if (i > 0 && i < segs) {
+        const off = (Math.random() - 0.5) * this.pieceSize * 0.55
+        x += px * off
+        y += py * off
+      }
+      pts.push({ x, y })
+    }
+    return pts
   }
+
+  start() {}
 
   update(progress) {
     const p = progress
+    this.time += 0.016
 
-    // Phase 1: Path glow builds (0â€“15%)
-    if (p < 0.15) {
-      const t = p / 0.15
-      this.pathGlow = Easing.easeOutCubic(t)
-      this.boardDarken = Easing.easeOutCubic(t) * 0.2
-      this.vignette = Easing.easeOutCubic(t) * 0.3
-    } else if (p < 0.75) {
-      this.pathGlow = 1
-      this.boardDarken = 0.2
-      this.vignette = 0.3
+    // Board darken + vignette: rise during charge, fall after strike
+    if (p < 0.13) {
+      const t = p / 0.13
+      this.boardDarken = Easing.easeOutCubic(t) * 0.22
+      this.vignette = Easing.easeOutCubic(t) * 0.32
+    } else if (p < 0.72) {
+      this.boardDarken = 0.22
+      this.vignette = 0.32
     } else if (p < 0.90) {
-      const t = (p - 0.75) / 0.15
-      this.boardDarken = 0.2 * (1 - Easing.easeOutCubic(t))
-      this.vignette = 0.3 * (1 - Easing.easeOutCubic(t))
+      const t = (p - 0.72) / 0.18
+      this.boardDarken = 0.22 * (1 - Easing.easeOutCubic(t))
+      this.vignette = 0.32 * (1 - Easing.easeOutCubic(t))
     } else {
-      this.pathGlow = 0
       this.boardDarken = 0
       this.vignette = 0
     }
 
-    // Phase 2: Energy ball travels along path (15â€“55%)
-    if (p >= 0.15 && p < 0.55) {
-      const t = (p - 0.15) / 0.40
-      const eased = Easing.easeInOutCubic(t)
-      this.pathProgress = eased
-      this.energyBallX = this.fromX + (this.toX - this.fromX) * eased
-      this.energyBallY = this.fromY + (this.toY - this.fromY) * eased
-      this.energyBallScale = 1 + Math.sin(t * Math.PI) * 0.3
-    } else if (p >= 0.55) {
+    // Phase A: charge-up, lightning channel forms (0-16%)
+    if (p < 0.16) {
+      this.pathProgress = Easing.easeOutCubic(p / 0.16)
+    } else {
       this.pathProgress = 1
-      this.energyBallX = this.toX
-      this.energyBallY = this.toY
-      this.energyBallScale = 1
     }
 
-    // Phase 3: Impact (55â€“70%)
-    if (p >= 0.55 && p < 0.65) {
-      const t = (p - 0.55) / 0.10
-      this.impactFlash = Math.sin(t * Math.PI) * 1.0
-      this.impactShake = 0
-    } else if (p >= 0.65 && p < 0.80) {
-      const t = (p - 0.65) / 0.15
-      this.impactFlash = Easing.easeOutCubic(1 - t) * 1.0
+    // Phase B: Chidori rush along the jagged line (16-60%)
+    if (p >= 0.16 && p < 0.60) {
+      const t = (p - 0.16) / 0.44
+      this.rushProgress = t
+      const seg = t * (this.lightning.length - 1)
+      const i0 = Math.min(this.lightning.length - 1, Math.floor(seg))
+      const i1 = Math.min(this.lightning.length - 1, i0 + 1)
+      const f = seg - Math.floor(seg)
+      const a = this.lightning[i0]
+      const b = this.lightning[i1]
+      this.drillX = a.x + (b.x - a.x) * f - this.pieceSize / 2
+      this.drillY = a.y + (b.y - a.y) * f - this.pieceSize / 2
+      this.drillScale = 1 + Math.sin(t * Math.PI) * 0.4
+      if (Math.random() < 0.4) {
+        const ang = Math.random() * Math.PI * 2
+        const spd = 60 + Math.random() * 170
+        const life = 0.10 + Math.random() * 0.22
+        this.sparks.push({
+          x: this.drillX + this.pieceSize / 2,
+          y: this.drillY + this.pieceSize / 2,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd,
+          size: this.pieceSize * (0.02 + Math.random() * 0.035),
+          life,
+          maxLife: life,
+          alpha: 1,
+          color: Math.random() > 0.5 ? '#b8e4ff' : '#ffffff'
+        })
+      }
+    } else if (p >= 0.60) {
+      this.rushProgress = 1
+      this.drillX = this.toX
+      this.drillY = this.toY
+      this.drillScale = 1
+    }
+
+    // Phase C: strike flash (58-72%)
+    if (p >= 0.58 && p < 0.66) {
+      const t = (p - 0.58) / 0.08
+      this.impactFlash = Math.sin(t * Math.PI)
+      this.impactShake = 6 * this.pieceSize * 0.04 * Math.sin(t * Math.PI)
+    } else if (p >= 0.66 && p < 0.82) {
+      const t = (p - 0.66) / 0.16
+      this.impactFlash = Easing.easeOutCubic(1 - t)
       this.impactShake = 0
     } else {
       this.impactFlash = 0
       this.impactShake = 0
     }
 
-    // Phase 4: Shockwave (58â€“85%)
-    if (p >= 0.58 && p < 0.85) {
-      const t = (p - 0.58) / 0.27
-      this.shockwaveProgress = t
-    } else if (p >= 0.85) {
-      this.shockwaveProgress = 1
+    // Phase D: electrocute to dust (58-92%)
+    if (p >= 0.58 && p < 0.92) {
+      this.victBurn = Easing.easeInCubic((p - 0.58) / 0.34)
+    } else if (p >= 0.92) {
+      this.victBurn = 1
     }
 
-    // Phase 5: Ring (60â€“90%)
-    if (p >= 0.60 && p < 0.90) {
-      const t = (p - 0.60) / 0.30
-      this.ringProgress = t
-    } else if (p >= 0.90) {
-      this.ringProgress = 1
+    // Update sparks
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const s = this.sparks[i]
+      s.life -= 0.016
+      if (s.life <= 0) { this.sparks.splice(i, 1); continue }
+      s.alpha = Math.max(0, s.life / s.maxLife)
+      s.x += s.vx * 0.016
+      s.y += s.vy * 0.016
+      s.vy += 45 * 0.016
     }
 
-    // Update debris
-    for (const d of this.debris) {
-      if (d.alpha <= 0) continue
-      d.vy += d.gravity * 0.016
-      d.x += d.vx * 0.016
-      d.y += d.vy * 0.016
-      d.rotation += d.rotationSpeed * 0.016
-      if (p >= 0.60) {
-        const fadeT = Math.min((p - 0.60) / 0.40, 1)
-        d.alpha = 1 - fadeT
+    // Ignite + update dust during burn
+    if (p >= 0.6) {
+      const ignite = (p - 0.6) / 0.3
+      const count = Math.min(this.dust.length, Math.floor(ignite * this.dust.length))
+      for (let i = 0; i < count; i++) {
+        if (this.dust[i].alpha <= 0.001) this.dust[i].alpha = 0.9
+      }
+      for (const d of this.dust) {
+        if (d.alpha <= 0.001) continue
+        d.life -= 0.016
+        if (d.life <= 0) { d.alpha = 0; continue }
+        d.vx *= 0.98
+        d.vy += d.grav * 0.016
+        d.x += d.vx * 0.016
+        d.y += d.vy * 0.016
+        d.alpha *= 0.99
       }
     }
 
@@ -2749,9 +2948,9 @@ export class RookPathEffect {
 
   render(ctx) {
     const { width, height } = this.canvasRenderer
-    const tcx = this.toX + this.pieceSize / 2
-    const tcy = this.toY + this.pieceSize / 2
-    const lineOffsetY = this.pieceSize * 0.18
+    const ss = this.pieceSize
+    const cxs = this.toX + ss / 2
+    const cys = this.toY + ss / 2
 
     // Board darken
     if (this.boardDarken > 0.01) {
@@ -2765,142 +2964,174 @@ export class RookPathEffect {
     // Vignette
     if (this.vignette > 0.01) {
       ctx.save()
-      const grad = ctx.createRadialGradient(
-        width / 2, height / 2, 0,
-        width / 2, height / 2, Math.max(width, height) * 0.7
-      )
-      grad.addColorStop(0, 'rgba(0,0,0,0)')
-      grad.addColorStop(1, `rgba(0,0,0,${this.vignette * 0.6})`)
-      ctx.fillStyle = grad
+      const g = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, Math.max(width, height) * 0.7)
+      g.addColorStop(0, 'rgba(0,0,0,0)')
+      g.addColorStop(1, `rgba(0,0,0,${this.vignette * 0.62})`)
+      ctx.fillStyle = g
       ctx.fillRect(0, 0, width, height)
       ctx.restore()
     }
 
-    // Path line glow
-    if (this.pathGlow > 0.01) {
+    // === 1. Lightning channel (jagged blue-white, forms with pathProgress) ===
+    if (this.pathProgress > 0.01) {
+      const n = this.lightning.length
+      const drawLen = this.pathProgress * n
       ctx.save()
-      ctx.globalAlpha = this.pathGlow * 0.7
-      ctx.strokeStyle = '#ff6600'
-      ctx.lineWidth = this.pieceSize * 0.15
-      ctx.shadowColor = '#ff6600'
-      ctx.shadowBlur = 20
+      ctx.globalCompositeOperation = 'screen'
       ctx.lineCap = 'round'
-      ctx.beginPath()
-      // Offset line slightly down (increase Y) so it appears BELOW the rook piece
-      const lineOffsetY = this.pieceSize * 0.18
-      ctx.moveTo(this.fromX + this.pieceSize / 2, this.fromY + this.pieceSize / 2 + lineOffsetY)
-      ctx.lineTo(this.toX + this.pieceSize / 2, this.toY + this.pieceSize / 2 + lineOffsetY)
-      ctx.stroke()
-      ctx.restore()
-
-      // Path particles along the line
-      for (const part of this.pathParticles) {
-        if (part.offset > this.pathProgress) continue
-        const px = this.fromX + (this.toX - this.fromX) * part.offset + this.pieceSize / 2
-        const py = this.fromY + (this.toY - this.fromY) * part.offset + this.pieceSize / 2 + lineOffsetY
-        ctx.save()
-        ctx.globalAlpha = part.alpha * this.pathGlow * (1 - this.pathProgress * 0.5)
-        ctx.fillStyle = '#ffd700'
-        ctx.shadowColor = '#ffd700'
-        ctx.shadowBlur = 8
-        ctx.beginPath()
-        ctx.arc(px, py, part.size, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.restore()
+      ctx.lineJoin = 'round'
+      // soft glow pass
+      for (let i = 1; i < n; i++) {
+        if (i > drawLen) break
+        const a = this.lightning[i - 1], b = this.lightning[i]
+        ctx.globalAlpha = 0.7 * (1 - (i / n) * 0.35)
+        ctx.strokeStyle = '#6fc9ff'
+        ctx.lineWidth = ss * 0.11
+        ctx.shadowColor = '#46a7ff'
+        ctx.shadowBlur = 24
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
       }
-    }
-
-    // Energy ball
-    if (this.pathProgress < 1 || this.impactFlash > 0.01) {
-      const bx = this.energyBallX + this.pieceSize / 2
-      const by = this.energyBallY + this.pieceSize / 2 + lineOffsetY
-      const scale = this.energyBallScale
-
-      ctx.save()
-      ctx.globalAlpha = this.pathGlow * 0.8
-      ctx.fillStyle = '#ff6600'
-      ctx.shadowColor = '#ff6600'
-      ctx.shadowBlur = 24
-      ctx.beginPath()
-      ctx.arc(bx, by, this.pieceSize * 0.25 * scale, 0, Math.PI * 2)
-      ctx.fill()
-
-      ctx.globalAlpha = this.pathGlow * 0.5
-      ctx.fillStyle = '#ffffff'
-      ctx.shadowColor = '#ffffff'
-      ctx.shadowBlur = 16
-      ctx.beginPath()
-      ctx.arc(bx, by, this.pieceSize * 0.12 * scale, 0, Math.PI * 2)
-      ctx.fill()
+      // bright core
+      for (let i = 1; i < n; i++) {
+        if (i > drawLen) break
+        const a = this.lightning[i - 1], b = this.lightning[i]
+        ctx.globalAlpha = 0.95
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = ss * 0.03
+        ctx.shadowBlur = 8
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
+      }
+      // crackling off-shoots before impact
+      if (this.rushProgress < 1) {
+        for (let i = 1; i < n; i++) {
+          if (i > drawLen) break
+          const seed = this.arcs[i % this.arcs.length].seed
+          if (Math.sin(this.time * 0.6 + seed * 40) > 0.2) {
+            const a = this.lightning[i]
+            const ang = Math.random() * Math.PI * 2
+            const len = ss * (0.12 + Math.random() * 0.22)
+            ctx.globalAlpha = 0.45
+            ctx.strokeStyle = '#bfe6ff'
+            ctx.lineWidth = ss * 0.02
+            ctx.shadowBlur = 6
+            ctx.beginPath()
+            ctx.moveTo(a.x, a.y)
+            ctx.lineTo(a.x + Math.cos(ang) * len, a.y + Math.sin(ang) * len)
+            ctx.stroke()
+          }
+        }
+      }
       ctx.restore()
     }
 
-    // Impact flash
+    // === 2. Chidori drill (crackling electric charge at rush position) ===
+    if (this.rushProgress < 1 || this.impactFlash > 0.01) {
+      const bx = this.drillX + ss / 2
+      const by = this.drillY + ss / 2
+      const R = ss * 0.32 * this.drillScale
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      const grad = ctx.createRadialGradient(bx, by, 0, bx, by, R * 2.2)
+      grad.addColorStop(0, 'rgba(255,255,255,0.95)')
+      grad.addColorStop(0.4, 'rgba(160,225,255,0.8)')
+      grad.addColorStop(1, 'rgba(70,150,255,0)')
+      ctx.fillStyle = grad
+      ctx.beginPath(); ctx.arc(bx, by, R * 2.2, 0, Math.PI * 2); ctx.fill()
+
+      // chidori crackling arcs circling the drill
+      for (let k = 0; k < 6; k++) {
+        const a = (Math.PI * 2 * k) / 6 + Math.random() * 0.5 + this.time * 3
+        const inner = R * 0.55
+        const outer = R * (1.7 + Math.random() * 0.5)
+        ctx.globalAlpha = 0.75
+        ctx.strokeStyle = '#cfeaff'
+        ctx.lineWidth = ss * 0.02
+        ctx.shadowColor = '#6fc9ff'
+        ctx.shadowBlur = 12
+        ctx.beginPath()
+        ctx.moveTo(bx + Math.cos(a) * inner, by + Math.sin(a) * inner)
+        for (let s = 1; s <= 4; s++) {
+          const tt = s / 4
+          const rr = inner + (outer - inner) * tt
+          const aa = a + (Math.random() - 0.5) * 1.0
+          ctx.lineTo(bx + Math.cos(aa) * rr, by + Math.sin(aa) * rr)
+        }
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+
+    // === 3. Spark charges ===
+    for (const s of this.sparks) {
+      if (s.alpha <= 0.01) continue
+      ctx.save()
+      ctx.globalAlpha = s.alpha
+      ctx.fillStyle = s.color
+      ctx.shadowColor = s.color
+      ctx.shadowBlur = 6
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
+
+    // === 4. Strike flash ===
     if (this.impactFlash > 0.01) {
       ctx.save()
-      ctx.globalAlpha = this.impactFlash * 0.4
-      ctx.fillStyle = '#fff'
+      ctx.globalAlpha = this.impactFlash * 0.35
+      ctx.fillStyle = '#dff2ff'
       ctx.fillRect(0, 0, width, height)
       ctx.restore()
     }
 
-    // Shockwave
-    if (this.shockwaveProgress > 0.01 && this.shockwaveProgress < 1) {
-      const swR = this.pieceSize * (0.3 + this.shockwaveProgress * 5)
-      const swW = this.pieceSize * 0.18 * (1 - this.shockwaveProgress)
+    // === 5. Electrocution web around victim (crackling cage + white hot core) ===
+    const cageAlpha = Math.sin((1 - this.victBurn) * Math.PI)
+    if (cageAlpha > 0.02) {
       ctx.save()
-      ctx.globalAlpha = (1 - this.shockwaveProgress) * 0.7
-      ctx.strokeStyle = '#ff6600'
-      ctx.lineWidth = swW
-      ctx.shadowColor = '#ff6600'
-      ctx.shadowBlur = 24
-      ctx.beginPath()
-      ctx.arc(tcx, tcy, swR, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.restore()
-    }
-
-    // Ring
-    if (this.ringProgress > 0.01 && this.ringProgress < 1) {
-      const ringR = this.pieceSize * (0.4 + this.ringProgress * 4)
-      const ringW = this.pieceSize * 0.12 * (1 - this.ringProgress)
-      ctx.save()
-      ctx.globalAlpha = (1 - this.ringProgress) * 0.9
-      ctx.strokeStyle = '#ffd700'
-      ctx.lineWidth = ringW
-      ctx.shadowColor = '#ffd700'
-      ctx.shadowBlur = 18
-      ctx.beginPath()
-      ctx.arc(tcx, tcy, ringR, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.restore()
-    }
-
-    // Debris
-    for (const d of this.debris) {
-      if (d.alpha <= 0.01) continue
-      ctx.save()
-      ctx.globalAlpha = d.alpha
-      ctx.translate(d.x, d.y)
-      ctx.rotate(d.rotation)
-      ctx.fillStyle = d.color
-      ctx.shadowColor = d.color
-      ctx.shadowBlur = 8
-      if (d.shape === 'square') {
-        ctx.fillRect(-d.size / 2, -d.size / 2, d.size, d.size)
-      } else {
+      ctx.globalCompositeOperation = 'screen'
+      for (const c of this.cage) {
+        const ax = cxs + Math.cos(c.angle) * c.dist
+        const ay = cys + Math.sin(c.angle) * c.dist
+        const a2 = c.angle + 0.9
+        const ex = ax + Math.cos(a2) * c.len
+        const ey = ay + Math.sin(a2) * c.len
+        const mx = ax + (ex - ax) * 0.5 + (Math.random() - 0.5) * ss * 0.12
+        const my = ay + (ey - ay) * 0.5 + (Math.random() - 0.5) * ss * 0.12
+        ctx.globalAlpha = cageAlpha * 0.65
+        ctx.strokeStyle = '#bfe6ff'
+        ctx.lineWidth = ss * 0.025
+        ctx.shadowColor = '#5db4ff'
+        ctx.shadowBlur = 10
         ctx.beginPath()
-        ctx.moveTo(0, -d.size)
-        ctx.lineTo(d.size, 0)
-        ctx.lineTo(0, d.size)
-        ctx.lineTo(-d.size, 0)
-        ctx.closePath()
-        ctx.fill()
+        ctx.moveTo(ax, ay); ctx.lineTo(mx, my); ctx.lineTo(ex, ey)
+        ctx.stroke()
+      }
+      for (let k = 0; k < 7; k++) {
+        const a = (Math.PI * 2 * k) / 7 + Math.random() * 0.6
+        const r = ss * (0.2 + Math.random() * 0.5)
+        ctx.globalAlpha = cageAlpha * 0.5
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = ss * 0.015
+        ctx.beginPath()
+        ctx.moveTo(cxs, cys)
+        ctx.lineTo(cxs + Math.cos(a) * r * 0.5 + (Math.random() - 0.5) * ss * 0.08,
+                   cys + Math.sin(a) * r * 0.5 + (Math.random() - 0.5) * ss * 0.08)
+        ctx.lineTo(cxs + Math.cos(a) * r, cys + Math.sin(a) * r)
+        ctx.stroke()
       }
       ctx.restore()
     }
 
-    // Impact shake
+    // === 6. Burned-to-dust ash ===
+    for (const d of this.dust) {
+      if (d.alpha <= 0.01) continue
+      ctx.save()
+      ctx.globalAlpha = Math.min(1, d.alpha) * 0.85
+      ctx.fillStyle = d.color
+      ctx.shadowColor = '#9fb8e6'
+      ctx.shadowBlur = 4
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
+
     return {
       shakeX: (Math.random() - 0.5) * this.impactShake,
       shakeY: (Math.random() - 0.5) * this.impactShake
@@ -2908,3 +3139,445 @@ export class RookPathEffect {
   }
 }
 
+/* ================================================================
+   BISHOP CUT EFFECT — "an edit being started"
+   A precise, smooth diagonal slice. A timeline-style scrub cue sweeps
+   in, a golden slash-beam draws from bishop to victim, then an editor's
+   blade slides through the victim and the two halves glide apart and
+   dissolve with luminous glints. Elegant — no sloppy debris.
+   ================================================================ */
+
+export class BishopCutEffect {
+  constructor(canvasRenderer, centerX, centerY, fromX, fromY, pieceSize, victimColor) {
+    this.canvasRenderer = canvasRenderer
+    this.cx = centerX
+    this.cy = centerY
+    this.fromX = fromX
+    this.fromY = fromY
+    this.pieceSize = pieceSize
+    this.victimColor = victimColor
+    this.duration = 1.05
+    this.finished = false
+
+    const ax = fromX + pieceSize / 2
+    const ay = fromY + pieceSize / 2
+    this.slashAngle = Math.atan2(centerY - ay, centerX - ax)
+
+    // Drives Renderer.renderBishopSplit
+    this.splitGap = 0
+    this.fadeAlpha = 1
+
+    this.engageProgress = 0
+    this.beamProgress = 0
+    this.cutProgress = 0
+    this.flashAlpha = 0
+    this.boardDarken = 0
+    this.time = 0
+
+    // Luminous glints at the seam
+    this.glints = []
+    for (let i = 0; i < 16; i++) {
+      const a = (Math.PI * 2 * i) / 16 + (Math.random() - 0.5) * 0.8
+      const spd = 10 + Math.random() * 70
+      const life = 0.3 + Math.random() * 0.5
+      this.glints.push({
+        x: centerX + (Math.random() - 0.5) * pieceSize,
+        y: centerY + (Math.random() - 0.5) * pieceSize,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd,
+        size: pieceSize * (0.02 + Math.random() * 0.04),
+        life,
+        maxLife: life,
+        alpha: 0,
+        color: Math.random() > 0.4 ? '#ffe9a8' : '#ffffff'
+      })
+    }
+  }
+
+  start() {}
+
+  update(progress) {
+    const p = progress
+    this.time += 0.016
+
+    // Board darken rises during engage, falls after the cut
+    if (p < 0.15) {
+      this.boardDarken = Easing.easeOutCubic(p / 0.15) * 0.16
+    } else if (p < 0.55) {
+      this.boardDarken = 0.16
+    } else if (p < 0.90) {
+      this.boardDarken = 0.16 * (1 - Easing.easeOutCubic((p - 0.55) / 0.35))
+    } else {
+      this.boardDarken = 0
+    }
+
+    // Phase 0: edit engage (0-16%)
+    if (p < 0.16) this.engageProgress = Easing.easeOutCubic(p / 0.16)
+    else this.engageProgress = 1
+
+    // Phase 1: slash beam (16-50%)
+    if (p < 0.16) this.beamProgress = 0
+    else if (p < 0.50) this.beamProgress = Easing.easeOutCubic((p - 0.16) / 0.34)
+    else this.beamProgress = 1
+
+    // Phase 2: the blade cut (50-62%)
+    if (p >= 0.50 && p < 0.62) this.cutProgress = Easing.easeInOutCubic((p - 0.50) / 0.12)
+    else if (p >= 0.62) this.cutProgress = 1
+
+    // Split gap + fade (50-92%)
+    if (p >= 0.50 && p < 0.75) {
+      const t = (p - 0.50) / 0.25
+      this.splitGap = Easing.easeOutCubic(t) * this.pieceSize * 0.9
+    } else if (p >= 0.75 && p < 0.92) {
+      const t = (p - 0.75) / 0.17
+      this.splitGap = this.pieceSize * 0.9 + Easing.easeOutQuad(t) * this.pieceSize * 0.6
+      this.fadeAlpha = 1 - t
+    } else if (p >= 0.92) {
+      this.splitGap = this.pieceSize * 1.5
+      this.fadeAlpha = 0
+    }
+
+    // Cut flash (50-62%)
+    if (p >= 0.50 && p < 0.62) {
+      this.flashAlpha = Math.sin(((p - 0.50) / 0.12) * Math.PI) * 0.5
+    } else {
+      this.flashAlpha = 0
+    }
+
+    // Ignite + update glints during the split
+    if (p >= 0.50) {
+      const ignite = (p - 0.50) / 0.25
+      for (let i = 0; i < this.glints.length; i++) {
+        if (ignite > i * 0.03 && this.glints[i].alpha <= 0.001) this.glints[i].alpha = 1
+      }
+      for (const g of this.glints) {
+        if (g.alpha <= 0.001) continue
+        g.life -= 0.016
+        if (g.life <= 0) { g.alpha = 0; continue }
+        g.x += g.vx * 0.016
+        g.y += g.vy * 0.016
+        g.alpha *= 0.98
+      }
+    }
+
+    if (p >= 1) this.finished = true
+  }
+
+  render(ctx) {
+    const { width, height } = this.canvasRenderer
+    const ss = this.pieceSize
+    const ax = this.fromX + ss / 2
+    const ay = this.fromY + ss / 2
+
+    // Board darken
+    if (this.boardDarken > 0.01) {
+      ctx.save()
+      ctx.globalAlpha = this.boardDarken
+      ctx.fillStyle = '#0a0a14'
+      ctx.fillRect(0, 0, width, height)
+      ctx.restore()
+    }
+
+    // Timeline scrub cue sweeping toward the victim (the "edit being started")
+    if (this.engageProgress > 0.01 && this.engageProgress < 1) {
+      const ex = ax + (this.cx - ax) * this.engageProgress
+      const ey = ay + (this.cy - ay) * this.engageProgress
+      const ang = Math.atan2(this.cy - ay, this.cx - ax)
+      const px = -Math.sin(ang)
+      const py = Math.cos(ang)
+      const len = ss * 3
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      ctx.globalAlpha = (1 - this.engageProgress) * 0.5
+      ctx.strokeStyle = '#ffd76a'
+      ctx.lineWidth = ss * 0.03
+      ctx.shadowColor = '#ffd76a'
+      ctx.shadowBlur = 12
+      ctx.beginPath()
+      ctx.moveTo(ex + px * len, ey + py * len)
+      ctx.lineTo(ex - px * len, ey - py * len)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // Diagonal slash beam (bishop's signature line)
+    if (this.beamProgress > 0.01) {
+      const ex = ax + (this.cx - ax) * this.beamProgress
+      const ey = ay + (this.cy - ay) * this.beamProgress
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      ctx.lineCap = 'round'
+      ctx.globalAlpha = 0.6
+      ctx.strokeStyle = '#ffe7a0'
+      ctx.lineWidth = ss * 0.10
+      ctx.shadowColor = '#ffc14d'
+      ctx.shadowBlur = 26
+      ctx.beginPath()
+      ctx.moveTo(ax, ay)
+      ctx.lineTo(ex, ey)
+      ctx.stroke()
+      ctx.globalAlpha = 0.95
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = ss * 0.03
+      ctx.shadowBlur = 8
+      ctx.beginPath()
+      ctx.moveTo(ax, ay)
+      ctx.lineTo(ex, ey)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // Editor blade sliding through the victim along the slash line
+    if (this.cutProgress > 0.01) {
+      const along = this.cutProgress * ss * 1.4 - ss * 0.2
+      const ang = this.slashAngle
+      const px = -Math.sin(ang)
+      const py = Math.cos(ang)
+      const bx = this.cx - Math.cos(ang) * along
+      const by = this.cy - Math.sin(ang) * along
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      ctx.globalAlpha = 0.9 * (1 - this.cutProgress * 0.3)
+      ctx.strokeStyle = '#fff3cf'
+      ctx.lineWidth = ss * 0.05
+      ctx.shadowColor = '#ffcf6a'
+      ctx.shadowBlur = 18
+      ctx.beginPath()
+      ctx.moveTo(bx + px * ss * 0.7, by + py * ss * 0.7)
+      ctx.lineTo(bx - px * ss * 0.7, by - py * ss * 0.7)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // Cut flash
+    if (this.flashAlpha > 0.01) {
+      ctx.save()
+      ctx.globalAlpha = this.flashAlpha
+      ctx.fillStyle = '#fff7dd'
+      ctx.fillRect(0, 0, width, height)
+      ctx.restore()
+    }
+
+    // Seam glow between the separating halves
+    if (this.splitGap > 0.01 && this.fadeAlpha > 0.01) {
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      ctx.globalAlpha = Math.min(0.8, this.fadeAlpha) * Math.min(1, this.splitGap / (ss * 0.4))
+      const grad = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, ss * 0.9)
+      grad.addColorStop(0, 'rgba(255,235,180,0.9)')
+      grad.addColorStop(1, 'rgba(255,235,180,0)')
+      ctx.fillStyle = grad
+      ctx.beginPath()
+      ctx.arc(this.cx, this.cy, ss * 0.9, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    // Luminous glints
+    for (const g of this.glints) {
+      if (g.alpha <= 0.01) continue
+      ctx.save()
+      ctx.globalAlpha = g.alpha
+      ctx.fillStyle = g.color
+      ctx.shadowColor = g.color
+      ctx.shadowBlur = 6
+      ctx.beginPath()
+      ctx.arc(g.x, g.y, g.size, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    return { shakeX: 0, shakeY: 0 }
+  }
+}
+
+/* ================================================================
+   KING TAKE EFFECT — the monarch's decree
+   The king blazes with a golden royal aura, then a radiant shockwave
+   rings out as the victim is "banished": lifted and dissolved upward
+   into a stream of rising light motes. Smooth and imposing.
+   ================================================================ */
+
+export class KingMightEffect {
+  constructor(canvasRenderer, centerX, centerY, fromX, fromY, pieceSize, victimColor) {
+    this.canvasRenderer = canvasRenderer
+    this.cx = centerX
+    this.cy = centerY
+    this.fromX = fromX
+    this.fromY = fromY
+    this.pieceSize = pieceSize
+    this.victimColor = victimColor
+    this.duration = 1.1
+    this.finished = false
+
+    this.auraAlpha = 0
+    this.ringProgress = 0
+    this.burnProgress = 0
+    this.impactFlash = 0
+    this.impactShake = 0
+    this.time = 0
+
+    // Rising light motes at the victim
+    this.motes = []
+    for (let i = 0; i < 20; i++) {
+      const a = (Math.PI * 2 * i) / 20 + (Math.random() - 0.5) * 1.2
+      const spd = 15 + Math.random() * 60
+      const life = 0.4 + Math.random() * 0.6
+      this.motes.push({
+        x: centerX + (Math.random() - 0.5) * pieceSize * 0.7,
+        y: centerY + (Math.random() - 0.5) * pieceSize * 0.7,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd - 30 - Math.random() * 60,
+        size: pieceSize * (0.02 + Math.random() * 0.04),
+        life,
+        maxLife: life,
+        alpha: 0,
+        color: Math.random() > 0.4 ? '#ffd76a' : '#fff6dc'
+      })
+    }
+  }
+
+  start() {}
+
+  update(progress) {
+    const p = progress
+    this.time += 0.016
+
+    // Royal aura charge (0-55%), then decay
+    if (p < 0.30) {
+      this.auraAlpha = Easing.easeOutCubic(p / 0.30)
+    } else if (p < 0.55) {
+      this.auraAlpha = 1
+    } else {
+      this.auraAlpha = Math.max(0, 1 - (p - 0.55) / 0.20)
+    }
+
+    // Shockwave ring (50-80%)
+    if (p >= 0.50 && p < 0.80) {
+      this.ringProgress = (p - 0.50) / 0.30
+    } else if (p >= 0.80) {
+      this.ringProgress = 1
+    }
+
+    // Victim banished upward (52-88%)
+    if (p >= 0.52 && p < 0.88) {
+      this.burnProgress = Easing.easeInCubic((p - 0.52) / 0.36)
+    } else if (p >= 0.88) {
+      this.burnProgress = 1
+    }
+
+    // Impact flash + shake (50-60%)
+    if (p >= 0.50 && p < 0.60) {
+      const t = (p - 0.50) / 0.10
+      this.impactFlash = Math.sin(t * Math.PI)
+      this.impactShake = 5 * this.pieceSize * 0.03 * Math.sin(t * Math.PI)
+    } else if (p >= 0.60 && p < 0.78) {
+      this.impactFlash = 1 - (p - 0.60) / 0.18
+      this.impactShake = 0
+    } else {
+      this.impactFlash = 0
+      this.impactShake = 0
+    }
+
+    // Ignite + update motes during banishing
+    if (p >= 0.52) {
+      const ignite = (p - 0.52) / 0.30
+      for (let i = 0; i < this.motes.length; i++) {
+        if (ignite > i * 0.02 && this.motes[i].alpha <= 0.001) this.motes[i].alpha = 1
+      }
+      for (const m of this.motes) {
+        if (m.alpha <= 0.001) continue
+        m.life -= 0.016
+        if (m.life <= 0) { m.alpha = 0; continue }
+        m.vx *= 0.99
+        m.vy -= 20 * 0.016
+        m.x += m.vx * 0.016
+        m.y += m.vy * 0.016
+        m.alpha *= 0.985
+      }
+    }
+
+    if (p >= 1) this.finished = true
+  }
+
+  render(ctx) {
+    const { width, height } = this.canvasRenderer
+    const ss = this.pieceSize
+    const kx = this.fromX + ss / 2
+    const ky = this.fromY + ss / 2
+
+    // Royal aura at the king
+    if (this.auraAlpha > 0.01) {
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      const R = ss * (0.5 + Math.sin(this.time * 6) * 0.04) * this.auraAlpha
+      const grad = ctx.createRadialGradient(kx, ky, 0, kx, ky, R * 2.4)
+      grad.addColorStop(0, `rgba(255,235,170,${0.5 * this.auraAlpha})`)
+      grad.addColorStop(0.45, `rgba(255,205,110,${0.25 * this.auraAlpha})`)
+      grad.addColorStop(1, 'rgba(255,190,90,0)')
+      ctx.fillStyle = grad
+      ctx.beginPath()
+      ctx.arc(kx, ky, R * 2.4, 0, Math.PI * 2)
+      ctx.fill()
+      // Light rays
+      for (let i = 0; i < 8; i++) {
+        const a = (Math.PI * 2 * i) / 8 + this.time * 0.8
+        const r0 = R
+        const r1 = R * (2.2 + Math.sin(this.time * 5 + i) * 0.2)
+        ctx.globalAlpha = 0.22 * this.auraAlpha
+        ctx.strokeStyle = '#ffe9ad'
+        ctx.lineWidth = ss * 0.02
+        ctx.beginPath()
+        ctx.moveTo(kx + Math.cos(a) * r0, ky + Math.sin(a) * r0)
+        ctx.lineTo(kx + Math.cos(a) * r1, ky + Math.sin(a) * r1)
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+
+    // Impact flash
+    if (this.impactFlash > 0.01) {
+      ctx.save()
+      ctx.globalAlpha = this.impactFlash * 0.3
+      ctx.fillStyle = '#fff6dc'
+      ctx.fillRect(0, 0, width, height)
+      ctx.restore()
+    }
+
+    // Shockwave ring
+    if (this.ringProgress > 0.01 && this.ringProgress < 1) {
+      const r = ss * (0.4 + this.ringProgress * 3.5)
+      const w = ss * 0.16 * (1 - this.ringProgress)
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      ctx.globalAlpha = (1 - this.ringProgress) * 0.75
+      ctx.strokeStyle = '#ffd76a'
+      ctx.lineWidth = w
+      ctx.shadowColor = '#ffb347'
+      ctx.shadowBlur = 22
+      ctx.beginPath()
+      ctx.arc(this.cx, this.cy, r, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // Rising light motes (banished victim)
+    for (const m of this.motes) {
+      if (m.alpha <= 0.01) continue
+      ctx.save()
+      ctx.globalAlpha = m.alpha
+      ctx.fillStyle = m.color
+      ctx.shadowColor = m.color
+      ctx.shadowBlur = 5
+      ctx.beginPath()
+      ctx.arc(m.x, m.y, m.size, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    return {
+      shakeX: (Math.random() - 0.5) * this.impactShake,
+      shakeY: (Math.random() - 0.5) * this.impactShake
+    }
+  }
+}

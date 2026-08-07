@@ -18,3 +18,4 @@ logs/
 # Dev files
 .mimocode/
 .wakatime-project
+node/

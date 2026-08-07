@@ -10,7 +10,10 @@ import {
   EpicClashEffect,
   RoyalDecapEffect,
   QueenRealitySlashEffect,
-  RookPathEffect
+  RookPathEffect,
+  QueenSonidoEffect,
+  BishopCutEffect,
+  KingMightEffect
 } from './CaptureAnimations.js'
 
 export class AnimationManager {
@@ -31,6 +34,24 @@ export class AnimationManager {
     this.capturePromise = null
     this.moveTimeline = null
     this.captureTimeline = null
+    this.captureEffect = null
+    this.captureTier = null
+    // Guards overlapping animation loops: whenever a *newer* animation starts it
+    // bumps this counter, so a stale (older) loop can no longer clear shared
+    // render state (ghost pieces / moveAnim) that the newer animation owns.
+    this.animSeq = 0
+  }
+
+  // Hard-reset all transient animation state. Safe to call at any time
+  // (resign, menu exit, replay/state switch) to guarantee no piece is ever
+  // left hidden by a stale or interrupted animation.
+  cancelAll() {
+    this.animSeq++
+    this.ghostPieces = []
+    this.trails = []
+    this.pieceRenderer.ghostPiece = null
+    this.pieceRenderer.victimGhostPiece = null
+    this.pieceRenderer.moveAnim = null
     this.captureEffect = null
     this.captureTier = null
   }
@@ -94,6 +115,7 @@ export class AnimationManager {
       this.pieceRenderer.ghostPiece = gp
 
       this.pieceRenderer.moveAnim = { fromSq: from, toSq: to, isCapture: false }
+      const seq = ++this.animSeq
       const animate = (now) => {
         const elapsed = now - gp.startTime
         const t = Math.min(elapsed / gp.duration, 1)
@@ -101,45 +123,50 @@ export class AnimationManager {
         // SmoothStep ease-in-out: quick launch, gentle deceleration
         const smooth = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
 
-        gp.x = fromP.x + (toP.x - fromP.x) * smooth
-        gp.y = fromP.y + (toP.y - fromP.y) * smooth
+        try {
+          gp.x = fromP.x + (toP.x - fromP.x) * smooth
+          gp.y = fromP.y + (toP.y - fromP.y) * smooth
 
-        // Parabolic arc: lift piece for physical weight feel
-        const arcHeight = Math.min(fromP.size * 1.6, dist * 0.16 + fromP.size * 0.08)
-        gp.height = arcHeight * Math.sin(t * Math.PI)
-        gp.y -= arcHeight * Math.sin(t * Math.PI)
+          // Parabolic arc for physical weight feel
+          const arcHeight = Math.min(fromP.size * 1.6, dist * 0.16 + fromP.size * 0.08)
+          gp.height = arcHeight * Math.sin(t * Math.PI)
+          gp.y -= arcHeight * Math.sin(t * Math.PI)
 
-        // Anticipatory lean + settle
-        const leanBase = 0.025
-        gp.rotation = Math.sin(t * Math.PI * 2) * leanBase * Math.cos(gp.travelAngle)
-          + (1 - t) * leanBase * 0.3 * Math.cos(gp.travelAngle)
+          // Anticipatory lean + settle
+          const leanBase = 0.025
+          gp.rotation = Math.sin(t * Math.PI * 2) * leanBase * Math.cos(gp.travelAngle)
+            + (1 - t) * leanBase * 0.3 * Math.cos(gp.travelAngle)
 
-        // Squash-and-stretch
-        const velocity = smooth * (1 - smooth) * 4
-        gp.scaleX = 1 - velocity * 0.03
-        gp.scaleY = 1 + velocity * 0.05
+          // Squash-and-stretch
+          const velocity = smooth * (1 - smooth) * 4
+          gp.scaleX = 1 - velocity * 0.03
+          gp.scaleY = 1 + velocity * 0.05
 
-        // Shadow: deepens as piece lifts
-        gp.shadowAlpha = 0.10 + Math.sin(t * Math.PI) * 0.10
+          // Shadow: deepens as piece lifts
+          gp.shadowAlpha = 0.10 + Math.sin(t * Math.PI) * 0.10
 
-        // Dust particles trail for all pieces
-        if (Math.random() < 0.08 && t < 0.92) {
-          const life = 0.15 + Math.random() * 0.25
-          gp.dustParticles.push({
-            x: gp.x + gp.size / 2 + (Math.random()-0.5) * gp.size * 0.35,
-            y: gp.y + gp.size * 0.8,
-            size: 0.5 + Math.random() * 1.8,
-            color: 'rgba(200,200,180,0.28)',
-            vx: (Math.random()-0.5) * 8, vy: -Math.random() * 6 - 1,
-            life, maxLife: life, alpha: 0.28
-          })
-        }
-        if (gp.updateDust) gp.updateDust(1/60)
+          // Dust particles trail for all pieces
+          if (Math.random() < 0.08 && t < 0.92) {
+            const life = 0.15 + Math.random() * 0.25
+            gp.dustParticles.push({
+              x: gp.x + gp.size / 2 + (Math.random()-0.5) * gp.size * 0.35,
+              y: gp.y + gp.size * 0.8,
+              size: 0.5 + Math.random() * 1.8,
+              color: 'rgba(200,200,180,0.28)',
+              vx: (Math.random()-0.5) * 8, vy: -Math.random() * 6 - 1,
+              life, maxLife: life, alpha: 0.28
+            })
+          }
+          if (gp.updateDust) gp.updateDust(1/60)
 
-        // Motion trail for longer moves
-        if (dist > gp.size * 1.5 && t > 0.03 && t < 0.95) {
-          gp.trail.push({ x: gp.x + gp.size/2, y: gp.y + gp.size/2 })
-          if (gp.trail.length > 5) gp.trail.shift()
+          // Motion trail for longer moves
+          if (dist > gp.size * 1.5 && t > 0.03 && t < 0.95) {
+            gp.trail.push({ x: gp.x + gp.size/2, y: gp.y + gp.size/2 })
+            if (gp.trail.length > 5) gp.trail.shift()
+          }
+        } catch (e) {
+          // Never let a tick error stop the animation / leave pieces hidden
+          console.warn('Move animation tick error:', e)
         }
 
         if (t < 1) {
@@ -149,29 +176,38 @@ export class AnimationManager {
           gp.height = 0; gp.rotation = 0
           gp.scaleX = 1; gp.scaleY = 1
           gp.shadowAlpha = 0.15
+          gp.trail = []
 
-          // 40ms fade-out settle before cleanup
-          const settleStart = performance.now()
-          const settleAnim = (settleNow) => {
-            if (animId !== this._animationId) {
-              this.pieceRenderer.moveAnim = null
-              resolve()
-              return
+          // This is still the current animation — nothing newer has taken over.
+          if (this.animSeq === seq) {
+            // 40ms fade-out settle before cleanup
+            let settleDone = false
+            const settleStart = performance.now()
+            const settleAnim = (settleNow) => {
+              const st = Math.min((settleNow - settleStart) / 40, 1)
+              const se = 1 - Math.pow(1 - st, 3)
+              gp.alpha = 1 - se
+              gp.shadowAlpha = 0.15 * (1 - se)
+              gp.trail = []
+              if (st < 1 && !settleDone) {
+                requestAnimationFrame(settleAnim)
+              } else if (!settleDone) {
+                settleDone = true
+                gp.alpha = 0; gp.isMoving = false
+                if (this.animSeq === seq) {
+                  this.ghostPieces = []
+                  this.pieceRenderer.moveAnim = null
+                  this.pieceRenderer.ghostPiece = null
+                }
+                resolve()
+              }
             }
-            const st = Math.min((settleNow - settleStart) / 40, 1)
-            const se = 1 - Math.pow(1 - st, 3)
-            gp.alpha = 1 - se
-            gp.shadowAlpha = 0.15 * (1 - se)
-            if (st < 1) { requestAnimationFrame(settleAnim) }
-            else {
-              gp.alpha = 0; gp.isMoving = false
-              this.ghostPieces = []
-              this.pieceRenderer.moveAnim = null
-              this.pieceRenderer.ghostPiece = null
-              resolve()
-            }
+            requestAnimationFrame(settleAnim)
+          } else {
+            // A newer animation owns the shared state; just resolve quietly.
+            gp.alpha = 0; gp.isMoving = false
+            resolve()
           }
-          requestAnimationFrame(settleAnim)
         }
       }
       requestAnimationFrame(animate)
@@ -209,7 +245,7 @@ export class AnimationManager {
       }
 
       const isKnightFork = piece === Piece.KNIGHT ? this.detectKnightFork(to, color) : false
-      const tier = resolveCaptureTier(piece, victimPiece, false, isKnightFork)
+      const tier = resolveCaptureTier(piece, victimPiece, false, isKnightFork, from, to)
       this.captureTier = tier
 
       const file = to % 8
@@ -225,13 +261,32 @@ export class AnimationManager {
           )
           break
         case CaptureTier.QUEEN_SLASH:
+          // Compute attack angle from attacker center to victim center
+          const dx = toP.x - fromP.x
+          const dy = toP.y - fromP.y
+          const attackAngle = Math.atan2(dy, dx)
           this.captureEffect = new QueenRealitySlashEffect(
-            this.canvasRenderer, cx, cy, fromP.size, victimColor
+            this.canvasRenderer, cx, cy, fromP.size, victimColor, attackAngle
+          )
+          break
+        case CaptureTier.QUEEN_SONIDO:
+          this.captureEffect = new QueenSonidoEffect(
+            this.canvasRenderer, cx, cy, fromP.x, fromP.y, fromP.size, victimColor
           )
           break
         case CaptureTier.ROOK_PATH:
           this.captureEffect = new RookPathEffect(
             this.canvasRenderer, fromP.x, fromP.y, toP.x, toP.y, fromP.size, victimColor
+          )
+          break
+        case CaptureTier.BISHOP_CUT:
+          this.captureEffect = new BishopCutEffect(
+            this.canvasRenderer, cx, cy, fromP.x, fromP.y, fromP.size, victimColor
+          )
+          break
+        case CaptureTier.KING_TAKE:
+          this.captureEffect = new KingMightEffect(
+            this.canvasRenderer, cx, cy, fromP.x, fromP.y, fromP.size, victimColor
           )
           break
         case CaptureTier.PAWN_SPLIT:
@@ -263,37 +318,78 @@ export class AnimationManager {
       const effectDuration = (this.captureEffect.duration || 1.0) * 1000
       const startTime = performance.now()
 
+      const seq = ++this.animSeq
       const animate = (now) => {
         const elapsed = now - startTime
         const progress = Math.min(elapsed / effectDuration, 1)
 
-        gp.x = fromP.x + (toP.x - fromP.x) * progress
-        gp.y = fromP.y + (toP.y - fromP.y) * progress
+        try {
+          if (tier === CaptureTier.QUEEN_SONIDO) {
+            this._tickSonidoGhost(gp, progress, fromP, toP)
+          } else {
+            gp.x = fromP.x + (toP.x - fromP.x) * progress
+            gp.y = fromP.y + (toP.y - fromP.y) * progress
+          }
 
-        // === UPGRADE 2: PARTICLE BURST ===
-      // Particle burst at 15% progress (impact moment)
-      if (!this._impactTriggered && progress >= 0.15) {
-        this._impactTriggered = true
-        this.spawnImpactParticles(toP.x + fromP.size/2, toP.y + fromP.size/2, fromP.size)
-      }
+          // Electrocution victim: the Chidori burns its target to dust
+          if (tier === CaptureTier.ROOK_PATH && this.captureEffect) {
+            const burn = this.captureEffect.victBurn || 0
+            const vgp = this.pieceRenderer.victimGhostPiece
+            if (vgp) {
+              vgp.alpha = Math.max(0.001, 1 - burn)
+              vgp.rotation = (Math.random() - 0.5) * 0.6 * burn
+              vgp.scaleX = 1 + burn * 0.18
+              vgp.scaleY = 1 - burn * 0.6
+            }
+          }
 
-      if (this.captureEffect && this.captureEffect.update) {
-          try { this.captureEffect.update(progress); } catch(e) {}
+          // King decree: the victim is banished — lifted and dissolved upward
+          if (tier === CaptureTier.KING_TAKE && this.captureEffect) {
+            const burn = this.captureEffect.burnProgress || 0
+            const vgp = this.pieceRenderer.victimGhostPiece
+            if (vgp) {
+              vgp.alpha = Math.max(0.001, 1 - burn)
+              vgp.y = toP.y - burn * fromP.size * 0.5
+              vgp.scaleX = 1 - burn * 0.15
+              vgp.scaleY = 1 - burn * 0.15
+              vgp.rotation = burn * 0.08
+            }
+          }
+
+          // === UPGRADE 2: PARTICLE BURST ===
+        // Particle burst at the impact moment for each tier
+        let impactAt = 0.15
+        if (tier === CaptureTier.QUEEN_SONIDO) impactAt = 0.5
+        if (tier === CaptureTier.QUEEN_SLASH) impactAt = 0.18
+        if (!this._impactTriggered && progress >= impactAt) {
+          this._impactTriggered = true
+          this.spawnImpactParticles(toP.x + fromP.size/2, toP.y + fromP.size/2, fromP.size)
         }
-        if (this.captureEffect) {
-          this.captureEffect.finished = progress >= 1
+
+        if (this.captureEffect && this.captureEffect.update) {
+            this.captureEffect.update(progress)
+          }
+          if (this.captureEffect) {
+            this.captureEffect.finished = progress >= 1
+          }
+        } catch (e) {
+          // Never let a tick error kill the animation and leave pieces hidden
+          console.warn('Capture animation tick error:', e)
         }
 
         if (progress < 1) {
           requestAnimationFrame(animate)
         } else {
-          gp.alpha = 0
-          this.ghostPieces = []
-          this.pieceRenderer.moveAnim = null
-          this.pieceRenderer.ghostPiece = null
-          this.pieceRenderer.victimGhostPiece = null
-          this.captureEffect = null
-          this.captureTier = null
+          // Only the current animation is allowed to clear the shared render state
+          if (this.animSeq === seq) {
+            gp.alpha = 0
+            this.ghostPieces = []
+            this.pieceRenderer.moveAnim = null
+            this.pieceRenderer.ghostPiece = null
+            this.pieceRenderer.victimGhostPiece = null
+            this.captureEffect = null
+            this.captureTier = null
+          }
           resolve()
         }
       }
@@ -378,6 +474,46 @@ export class AnimationManager {
         gp.updateDust(dt)
       }
     }
+  }
+
+  _tickSonidoGhost(gp, progress, fromP, toP) {
+    const p = progress
+    // Vanish (0-0.14): queen still at source, shakes apart and fades with a
+    // static flicker — Hollow sonido "shatter" look.
+    if (p < 0.14) {
+      const t = p / 0.14
+      const jitter = (Math.random() - 0.5) * 4
+      gp.x = fromP.x + jitter
+      gp.y = fromP.y
+      gp.alpha = Math.max(0, (1 - t) * (0.6 + Math.random() * 0.4))
+      gp.scaleX = 1 - t * 0.2 + (Math.random() - 0.5) * 0.08
+      gp.scaleY = 1 + t * 0.25
+      gp.rotation = -t * 0.5 + (Math.random() - 0.5) * 0.15
+    } else if (p < 0.30) {
+      // Silent gap: nothing visible (true teleport).
+      gp.x = fromP.x
+      gp.y = fromP.y
+      gp.alpha = 0
+    } else if (p < 0.44) {
+      // Sonido materialise: queen appears at the target, scaling in.
+      const t = (p - 0.30) / 0.14
+      gp.x = toP.x
+      gp.y = toP.y
+      gp.alpha = Math.min(1, t * 1.4)
+      gp.scaleX = 0.6 + t * 0.4
+      gp.scaleY = 0.6 + t * 0.4
+      gp.rotation = (1 - t) * 0.4
+    } else {
+      // Sword strike + split: queen locked onto the victim.
+      gp.x = toP.x
+      gp.y = toP.y
+      gp.alpha = 1
+      gp.scaleX = 1
+      gp.scaleY = 1
+      gp.rotation = 0
+    }
+    gp.height = 0
+    gp.shadowAlpha = gp.alpha > 0.01 ? 0.15 : 0
   }
 
   detectKnightFork(knightSq, knightColor) {

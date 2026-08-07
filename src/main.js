@@ -12,6 +12,8 @@ import { EloSystem } from './core/EloSystem.js'
 import { MatchHistory } from './core/MatchHistory.js'
 import { ChessClock } from './core/ChessClock.js'
 import { AnimationManager } from './animation/AnimationManager.js'
+import { CaptureTier } from './animation/CaptureAnimations.js'
+import { Piece } from './core/ChessTypes.js'
 import { Camera } from './animation/Camera.js'
 import { TimeController } from './animation/TimeController.js'
 import { EventBus } from './utils/EventBus.js'
@@ -125,6 +127,11 @@ class Game {
     })
     this.engine.on('check', () => {
       this.audio.playCheck()
+      // Don't yank the camera around during a queen capture — it would hide the
+      // board-splitting effect the player is supposed to watch.
+      const history = this.engine.getHistory()
+      const lastMove = history.length > 0 ? history[history.length - 1].move : null
+      if (lastMove && lastMove.piece === Piece.QUEEN) return
       const pos = this.engine.getPosition()
       const kingSq = pos.board.findIndex((p, i) => p === 6 && pos.colors[i] === this.engine.getTurn())
       if (kingSq >= 0) {
@@ -137,6 +144,7 @@ class Game {
     })
     this.engine.on('gameover', () => {
       this.audio.playGameOver()
+      this.animationManager?.cancelAll()
       this.animationManager.resetCameraView()
     })
 
@@ -274,6 +282,7 @@ class Game {
       this.gameActive = false
       this.botThinking = false
       this.input.setInputEnabled(false)
+      this.animationManager?.cancelAll()
       this.engine.setPaused(true)
       this.ui.showScreen('mainMenu')
     })
@@ -283,9 +292,44 @@ class Game {
       this.engine.setPaused(true)
       this.gameActive = false
       this.input.setInputEnabled(false)
+      this.animationManager?.cancelAll()
       // Emit resignation - opponent wins
       const winner = this.engine.getTurn() === 1 ? 'black' : 'white'
       this.endGame({ result: 'resignation', winner })
+    })
+
+    this.ui.on('share-game', () => {
+      const fen = this.engine.getFEN()
+      this.ui.showShare(fen)
+    })
+
+    this.ui.on('copy-share-url', () => {
+      const input = document.querySelector('.share-url')
+      if (input) {
+        input.select()
+        document.execCommand('copy')
+        this.ui.showCopied()
+      }
+    })
+
+    this.ui.on('close-share', () => {
+      this.ui.hideShare()
+    })
+
+    this.ui.on('toggle-moves', () => {
+      const panel = document.querySelector('.move-list-panel')
+      if (panel) panel.classList.toggle('visible')
+    })
+
+    this.ui.on('rematch', () => {
+      if (!this.gameMode) return
+      this.ui.hideGameOver()
+      const diff = this.botDifficulty
+      const time = this.timeControl
+      const color = this.playerColor
+      this.startGame(this.gameMode, diff, time)
+      // Restore player color choice if possible (startGame randomizes if bot)
+      // Note: startGame randomizes color for bot mode; for friend mode it uses pendingDifficulty=null path
     })
   }
 
@@ -330,6 +374,7 @@ class Game {
     this.engine.init()
     this.renderer.boardRenderer.setPosition(this.engine.getPosition())
     this.renderer.pieceRenderer.setLastMove(-1, -1)
+    this.animationManager?.cancelAll()
 
     // Determine who moves first
     const firstPlayer = this.playerColor === 1 ? 'white' : 'black'
@@ -459,6 +504,10 @@ class Game {
         }).catch((e) => { console.warn('Bot move animation error:', e) })
       }
 
+      // It is now the player's turn — re-enable input immediately so they can
+      // select/move pieces without waiting for the bot's cosmetic animation.
+      this.input.setInputEnabled(true)
+
       if (botAnimPromise) {
         try {
           await Promise.race([
@@ -476,7 +525,7 @@ class Game {
         return
       }
 
-      if (this.timeControl > 0 && this.gameActive) {
+      if (this.timeControl > 0 && this.gameActive && this.engine.getTurn() === this.playerColor) {
         const side = this.engine.getTurn() === 1 ? 'white' : 'black'
         this.clock.switchSide(side)
         this.updateClockDisplay(side)
@@ -487,7 +536,11 @@ class Game {
 
     this.ui.showThinking(botSide, false)
     this.botThinking = false
-    this.input.setInputEnabled(true)
+
+    // If the player responded during the bot's animation, respond right back.
+    if (this.gameActive && !this.engine.getGameOver() && this.engine.getTurn() !== this.playerColor) {
+      this.makeBotMove()
+    }
   }
 
   async executeBotFallbackMove(botSide) {
@@ -540,6 +593,9 @@ class Game {
       }).catch((e) => { console.warn('Bot fallback move animation error:', e) })
     }
 
+    // It is now the player's turn — re-enable input immediately.
+    this.input.setInputEnabled(true)
+
     if (botAnimPromise) {
       try {
         await Promise.race([
@@ -557,7 +613,7 @@ class Game {
       return
     }
 
-    if (this.timeControl > 0 && this.gameActive) {
+    if (this.timeControl > 0 && this.gameActive && this.engine.getTurn() === this.playerColor) {
       const side = this.engine.getTurn() === 1 ? 'white' : 'black'
       this.clock.switchSide(side)
       this.updateClockDisplay(side)
@@ -565,7 +621,10 @@ class Game {
 
     this.ui.showThinking(botSide, false)
     this.botThinking = false
-    this.input.setInputEnabled(true)
+
+    if (this.gameActive && !this.engine.getGameOver() && this.engine.getTurn() !== this.playerColor) {
+      this.makeBotMove()
+    }
   }
 
   loop(time) {
@@ -813,6 +872,7 @@ class Game {
     this.replayIndex = -1
     this.replayPlaying = false
     this.engine.init()
+    this.animationManager?.cancelAll()
     this.renderer.boardRenderer.setPosition(this.engine.getPosition())
     this.ui.showScreen('replay')
     this.ui.updateReplayInfo(match)
