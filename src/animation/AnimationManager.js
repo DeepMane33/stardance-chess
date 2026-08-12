@@ -7,6 +7,8 @@ import {
   EditDissolveEffect,
   PawnSplitEffect,
   KnightDarknessEffect,
+  KnightChainCaptureEffect,
+  KnightPunchEffect,
   EpicClashEffect,
   RoyalDecapEffect,
   QueenRealitySlashEffect,
@@ -258,6 +260,18 @@ export class AnimationManager {
         case CaptureTier.KNIGHT_DARKNESS:
           this.captureEffect = new KnightDarknessEffect(
             this.canvasRenderer, fromP.x, fromP.y, toP.x, toP.y, fromP.size, color
+          )
+          break
+        case CaptureTier.KNIGHT_CHAIN_CAPTURE:
+          this.captureEffect = new KnightChainCaptureEffect(
+            this.canvasRenderer, fromP.x, fromP.y, toP.x, toP.y, fromP.size, color, victimColor,
+            gp, this.pieceRenderer.victimGhostPiece
+          )
+          break
+        case CaptureTier.KNIGHT_PUNCH:
+          this.captureEffect = new KnightPunchEffect(
+            this.canvasRenderer, fromP.x, fromP.y, toP.x, toP.y, fromP.size, color, victimColor,
+            gp, this.pieceRenderer.victimGhostPiece
           )
           break
         case CaptureTier.QUEEN_SLASH:

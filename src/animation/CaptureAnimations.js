@@ -22,6 +22,8 @@ export const CaptureTier = {
   EDIT_DISSOLVE: 'edit_dissolve',
   PAWN_SPLIT: 'pawn_split',
   KNIGHT_DARKNESS: 'knight_darkness',
+  KNIGHT_CHAIN_CAPTURE: 'knight_chain_capture',
+  KNIGHT_PUNCH: 'knight_punch',
   EPIC_CLASH: 'epic_clash',
   ROYAL_DECAP: 'royal_decap',
   QUEEN_SLASH: 'queen_slash',
@@ -45,8 +47,18 @@ export function resolveCaptureTier(attackerPiece, victimPiece, isCheckmate = fal
     return CaptureTier.ROYAL_DECAP
   }
 
-  // Knight special: knight captures queen/rook OR delivers a fork
-  if (attackerPiece === Piece.KNIGHT && (victimPiece === Piece.QUEEN || victimPiece === Piece.ROOK || isKnightFork)) {
+  // Knight special: knight captures queen/rook - CINEMATIC CHAIN CAPTURE
+  if (attackerPiece === Piece.KNIGHT && (victimPiece === Piece.QUEEN || victimPiece === Piece.ROOK)) {
+    return CaptureTier.KNIGHT_CHAIN_CAPTURE
+  }
+
+  // Knight punch: knight captures bishop or knight - PUNCH OFF BOARD
+  if (attackerPiece === Piece.KNIGHT && (victimPiece === Piece.BISHOP || victimPiece === Piece.KNIGHT)) {
+    return CaptureTier.KNIGHT_PUNCH
+  }
+
+  // Knight fork: knight delivers a fork (knight darkness effect)
+  if (attackerPiece === Piece.KNIGHT && isKnightFork) {
     return CaptureTier.KNIGHT_DARKNESS
   }
 
@@ -996,6 +1008,1015 @@ export class KnightDarknessEffect {
     }
 
     return { shakeX: 0, shakeY: 0 }
+  }
+}
+
+/* ================================================================
+   KNIGHT CHAIN CAPTURE EFFECT — Cinematic Knight vs Queen/Rook
+   ================================================================ */
+
+export class KnightChainCaptureEffect {
+  constructor(canvasRenderer, fromX, fromY, toX, toY, pieceSize, knightColor, victimColor, ghostPiece, victimGhostPiece) {
+    this.canvasRenderer = canvasRenderer
+    this.fromX = fromX
+    this.fromY = fromY
+    this.toX = toX
+    this.toY = toY
+    this.pieceSize = pieceSize
+    this.knightColor = knightColor
+    this.victimColor = victimColor
+    this.duration = 2.5
+    this.finished = false
+
+    // Reference to the actual ghost pieces that the renderer draws
+    this.gp = ghostPiece
+    this.vgp = victimGhostPiece
+
+    // Initialize ghost piece at start position
+    if (this.gp) {
+      this.gp.x = fromX
+      this.gp.y = fromY
+      this.gp.rotation = 0
+      this.gp.scaleX = 1
+      this.gp.scaleY = 1
+      this.gp.alpha = 1
+      this.gp.height = 0
+      this.gp.shadowAlpha = 0.15
+      this.gp.trail = []
+    }
+
+    // Initialize victim ghost piece at destination
+    if (this.vgp) {
+      this.vgp.x = toX
+      this.vgp.y = toY
+      this.vgp.rotation = 0
+      this.vgp.scaleX = 1
+      this.vgp.scaleY = 1
+      this.vgp.alpha = 1
+      this.vgp.height = 0
+      this.vgp.shadowAlpha = 0.15
+    }
+
+    // Chain properties
+    this.chainProgress = 0
+    this.chainAlpha = 0
+    this.chainLinks = []
+    this.chainTension = 0
+    this.chainImpact = 0
+
+    // Board blackout
+    this.blackoutAlpha = 0
+    this.blackoutPhase = 0
+
+    // Camera zoom
+    this.zoom = 1
+    this.zoomTarget = 1
+
+    // Impact effects
+    this.flashAlpha = 0
+    this.ringProgress = 0
+    this.ringProgress2 = 0
+
+    // Crack/shatter effects
+    this.crackLines = []
+    for (let i = 0; i < 12; i++) {
+      const angle = (Math.PI * 2 * i) / 12 + (Math.random() - 0.5) * 0.2
+      this.crackLines.push({
+        angle,
+        length: 0,
+        maxLength: this.pieceSize * (2.5 + Math.random() * 3),
+        width: 2 + Math.random() * 2,
+        alpha: 0
+      })
+    }
+
+    // Gold particles from chain impact
+    this.goldParticles = []
+    for (let i = 0; i < 20; i++) {
+      const angle = (Math.PI * 2 * i) / 20 + (Math.random() - 0.5) * 0.6
+      const speed = 100 + Math.random() * 300
+      this.goldParticles.push({
+        x: toX + pieceSize / 2,
+        y: toY + pieceSize / 2,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 50 - Math.random() * 100,
+        size: pieceSize * (0.04 + Math.random() * 0.08),
+        alpha: 1,
+        gravity: 400 + Math.random() * 200,
+        color: ['#ffd700', '#ffaa00', '#fff8dc', '#ffeb3b'][Math.floor(Math.random() * 4)],
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 20
+      })
+    }
+
+    // Victim shatter pieces (for additional debris)
+    this.victimShards = []
+    for (let i = 0; i < 8; i++) {
+      this.victimShards.push({
+        x: toX + pieceSize / 2,
+        y: toY + pieceSize / 2,
+        vx: (Math.random() - 0.5) * 200,
+        vy: -Math.random() * 300 - 100,
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 15,
+        size: pieceSize * (0.12 + Math.random() * 0.1),
+        alpha: 1,
+        gravity: 500
+      })
+    }
+
+    // Trail for knight
+    this.trail = []
+
+    // L-shape waypoint
+    this.waypoint = this.computeLWaypoint(fromX, fromY, toX, toY)
+    this.legPhase = 0
+    this.jumpProgress = 0
+
+    // Audio callbacks
+    this._onJump = null
+    this._onChainExtend = null
+    this._onImpact = null
+    this._jFired = false
+    this._cFired = false
+    this._iFired = false
+  }
+
+  computeLWaypoint(x1, y1, x2, y2) {
+    const dx = x2 - x1
+    const dy = y2 - y1
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return { x: x2, y: y1 }
+    } else {
+      return { x: x1, y: y2 }
+    }
+  }
+
+  start() {
+    this.generateChainLinks()
+  }
+
+  generateChainLinks() {
+    this.chainLinks = []
+    const linkCount = 14
+    for (let i = 0; i < linkCount; i++) {
+      this.chainLinks.push({
+        x: 0, y: 0,
+        rotation: 0,
+        scale: 1,
+        alpha: 0,
+        delay: i * 0.02
+      })
+    }
+  }
+
+  update(progress) {
+    const p = progress
+    const ss = this.pieceSize
+    const cx = this.toX + ss / 2
+    const cy = this.toY + ss / 2
+    const gp = this.gp
+    const vgp = this.vgp
+
+    // Phase 1: BLACKOUT (0-15%) - Board goes completely black
+    if (p < 0.15) {
+      this.blackoutPhase = 1
+      this.blackoutAlpha = Easing.easeInCubic(p / 0.15)
+    } else if (p < 0.85) {
+      this.blackoutPhase = 2
+      this.blackoutAlpha = 1
+    } else {
+      this.blackoutPhase = 3
+      this.blackoutAlpha = 1 - Easing.easeOutCubic((p - 0.85) / 0.15)
+    }
+
+    // Phase 2: KNIGHT L-SHAPE JUMP with SPIN (10-55%)
+    const jumpStart = 0.10
+    const jumpEnd = 0.55
+    if (p >= jumpStart && p < jumpEnd) {
+      const t = (p - jumpStart) / (jumpEnd - jumpStart)
+      this.jumpProgress = t
+
+      let knightX, knightY, knightRotation, knightScale
+
+      if (t < 0.5) {
+        // First leg of L
+        this.legPhase = 0
+        const lt = t / 0.5
+        const eased = Easing.easeOutCubic(lt)
+        knightX = this.fromX + (this.waypoint.x - this.fromX) * eased
+        knightY = this.fromY + (this.waypoint.y - this.fromY) * eased
+      } else {
+        // Second leg of L
+        this.legPhase = 1
+        const lt = (t - 0.5) / 0.5
+        const eased = Easing.easeInOutCubic(lt)
+        knightX = this.waypoint.x + (this.toX - this.waypoint.x) * eased
+        knightY = this.waypoint.y + (this.toY - this.waypoint.y) * eased
+      }
+
+      // SPIN: 2 full rotations during jump
+      knightRotation = t * Math.PI * 4
+
+      // Arc height - parabolic lift
+      const arcT = Math.sin(t * Math.PI)
+      knightScale = 1 + arcT * 0.2
+
+      // Sync with actual ghost piece that renderer draws
+      if (gp) {
+        gp.x = knightX
+        gp.y = knightY
+        gp.rotation = knightRotation
+        gp.scaleX = knightScale
+        gp.scaleY = knightScale
+        gp.alpha = 1
+        gp.height = arcT * ss * 0.5
+        gp.shadowAlpha = 0.10 + arcT * 0.10
+      }
+
+      // Trail
+      this.trail.push({ x: knightX, y: knightY, rotation: knightRotation })
+      if (this.trail.length > 20) this.trail.shift()
+
+      // Camera zoom follows knight
+      this.zoom = 1 + arcT * 0.15
+    } else if (p >= jumpEnd) {
+      // Landing - sync final position
+      if (gp) {
+        gp.x = this.toX
+        gp.y = this.toY
+        gp.rotation = 0
+        gp.scaleX = 1
+        gp.scaleY = 1
+        gp.height = 0
+        gp.shadowAlpha = 0.15
+        gp.alpha = 1
+      }
+    }
+
+    // Phase 3: CHAIN EXTENDS (35-60%)
+    if (p >= 0.35 && p < 0.60) {
+      const t = (p - 0.35) / 0.25
+      this.chainProgress = Easing.easeOutCubic(t)
+      this.chainAlpha = 1
+      this.chainTension = Math.sin(t * Math.PI) * 0.5 + 0.5
+    } else if (p >= 0.60 && p < 0.75) {
+      this.chainProgress = 1
+      this.chainAlpha = 1
+      this.chainTension = 1
+    } else if (p >= 0.75) {
+      this.chainAlpha = Math.max(0, 1 - (p - 0.75) / 0.2)
+    }
+
+    if (p >= 0.38 && !this._cFired) { this._cFired = true; this._onChainExtend?.() }
+
+    // Phase 4: CHAIN IMPACT & WRAP (55-70%)
+    if (p >= 0.55 && p < 0.70) {
+      const t = (p - 0.55) / 0.15
+      this.chainImpact = Easing.easeInCubic(t)
+      this.flashAlpha = Math.sin(t * Math.PI) * 1.2
+    } else if (p >= 0.70 && p < 0.80) {
+      this.chainImpact = 1
+      this.flashAlpha = Math.max(0, 1 - (p - 0.70) / 0.1) * 1.2
+    } else if (p >= 0.80) {
+      this.flashAlpha = 0
+    }
+
+    if (p >= 0.58 && !this._iFired) { this._iFired = true; this._onImpact?.() }
+
+    // Phase 5: VICTIM SHATTER (65-90%) - animate victim ghost piece
+    if (p >= 0.65 && p < 0.90) {
+      const t = (p - 0.65) / 0.25
+      // Fade out victim ghost piece
+      if (vgp) {
+        vgp.alpha = 1 - t
+        vgp.scaleX = 1 - t * 0.5
+        vgp.scaleY = 1 - t * 0.5
+        vgp.rotation = t * Math.PI * 0.5
+      }
+      for (const shard of this.victimShards) {
+        if (shard.alpha <= 0) continue
+        shard.vy += shard.gravity * 0.016
+        shard.x += shard.vx * 0.016
+        shard.y += shard.vy * 0.016
+        shard.rotation += shard.rotationSpeed * 0.016
+        shard.alpha = 1 - t
+      }
+    } else if (p >= 0.90) {
+      if (vgp) vgp.alpha = 0
+      for (const shard of this.victimShards) shard.alpha = 0
+    }
+
+    // Phase 6: CRACK LINES (60-85%)
+    if (p >= 0.60 && p < 0.85) {
+      const t = (p - 0.60) / 0.25
+      for (const crack of this.crackLines) {
+        crack.length = crack.maxLength * Easing.easeOutExpo(t)
+        crack.alpha = (1 - t) * 0.95
+      }
+    } else if (p >= 0.85) {
+      for (const crack of this.crackLines) crack.alpha = 0
+    }
+
+    // Phase 7: GOLD PARTICLES BURST (58-85%)
+    if (p >= 0.58 && p < 0.85) {
+      const fadeT = Math.min((p - 0.58) / 0.27, 1)
+      for (const part of this.goldParticles) {
+        if (part.alpha <= 0) continue
+        part.vy += part.gravity * 0.016
+        part.x += part.vx * 0.016
+        part.y += part.vy * 0.016
+        part.rotation += part.rotationSpeed * 0.016
+        part.alpha = 1 - fadeT
+      }
+    } else if (p >= 0.85) {
+      for (const part of this.goldParticles) part.alpha = 0
+    }
+
+    // Rings
+    if (p >= 0.62 && p < 0.95) {
+      this.ringProgress = (p - 0.62) / 0.33
+    } else if (p >= 0.95) {
+      this.ringProgress = 1
+    }
+    if (p >= 0.66 && p < 0.97) {
+      this.ringProgress2 = (p - 0.66) / 0.31
+    } else if (p >= 0.97) {
+      this.ringProgress2 = 1
+    }
+
+    if (p >= 1) this.finished = true
+  }
+
+  render(ctx) {
+    const { width, height } = this.canvasRenderer
+    const ss = this.pieceSize
+    const gp = this.gp
+    const knightCx = gp ? (gp.x + ss / 2) : (this.toX + ss / 2)
+    const knightCy = gp ? (gp.y + ss / 2) : (this.toY + ss / 2)
+    const victimCx = this.toX + ss / 2
+    const victimCy = this.toY + ss / 2
+
+    // BOARD BLACKOUT - Everything black except knight and victim
+    if (this.blackoutAlpha > 0.01) {
+      ctx.save()
+      ctx.globalAlpha = this.blackoutAlpha
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(0, 0, width, height)
+      ctx.restore()
+    }
+
+    // Apply camera zoom around knight during jump
+    if (this.zoom > 1.01 && gp) {
+      ctx.save()
+      ctx.translate(knightCx, knightCy)
+      ctx.scale(this.zoom, this.zoom)
+      ctx.translate(-knightCx, -knightCy)
+    }
+
+    // KNIGHT TRAIL with rotation ghosting
+    if (this.trail.length > 1) {
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      for (let i = 1; i < this.trail.length; i++) {
+        const t = i / this.trail.length
+        const prev = this.trail[i - 1]
+        const curr = this.trail[i]
+        ctx.globalAlpha = t * 0.15
+        ctx.strokeStyle = this.knightColor === 1 ? '#ffffff' : '#cccccc'
+        ctx.lineWidth = ss * 0.1 * t
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        ctx.moveTo(prev.x + ss / 2, prev.y + ss / 2)
+        ctx.lineTo(curr.x + ss / 2, curr.y + ss / 2)
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+
+    // CHAIN RENDERING - Solid 2D chain with links
+    if (this.chainAlpha > 0.01) {
+      this.renderChain(ctx, knightCx, knightCy, victimCx, victimCy)
+    }
+
+    // CHAIN IMPACT RING at victim
+    if (this.chainImpact > 0.01) {
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      const ringR = ss * (0.3 + this.chainImpact * 2)
+      const ringW = ss * 0.12 * (1 - this.chainImpact)
+      ctx.globalAlpha = this.chainImpact * (1 - this.chainImpact) * 0.8
+      ctx.strokeStyle = '#ffd700'
+      ctx.lineWidth = ringW
+      ctx.shadowColor = '#ffd700'
+      ctx.shadowBlur = 20
+      ctx.beginPath()
+      ctx.arc(victimCx, victimCy, ringR, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // IMPACT FLASH
+    if (this.flashAlpha > 0.01) {
+      ctx.save()
+      ctx.globalAlpha = this.flashAlpha * 0.35
+      ctx.fillStyle = '#fff8dc'
+      ctx.fillRect(0, 0, width, height)
+      ctx.restore()
+    }
+
+    // CRACK LINES
+    for (const crack of this.crackLines) {
+      if (crack.alpha <= 0.01) continue
+      ctx.save()
+      ctx.globalAlpha = crack.alpha
+      ctx.strokeStyle = '#ffd700'
+      ctx.lineWidth = crack.width
+      ctx.shadowColor = '#ffd700'
+      ctx.shadowBlur = 6
+      ctx.beginPath()
+      ctx.moveTo(victimCx, victimCy)
+      ctx.lineTo(
+        victimCx + Math.cos(crack.angle) * crack.length,
+        victimCy + Math.sin(crack.angle) * crack.length
+      )
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // GOLD PARTICLES
+    for (const part of this.goldParticles) {
+      if (part.alpha <= 0.01) continue
+      ctx.save()
+      ctx.globalAlpha = part.alpha
+      ctx.translate(part.x, part.y)
+      ctx.rotate(part.rotation)
+      ctx.fillStyle = part.color
+      ctx.shadowColor = part.color
+      ctx.shadowBlur = 8
+      ctx.beginPath()
+      ctx.arc(0, 0, part.size, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    // VICTIM SHARDS
+    for (const shard of this.victimShards) {
+      if (shard.alpha <= 0.01) continue
+      ctx.save()
+      ctx.globalAlpha = shard.alpha
+      ctx.translate(shard.x, shard.y)
+      ctx.rotate(shard.rotation)
+      ctx.fillStyle = this.victimColor === 1 ? '#ffffff' : '#333333'
+      ctx.strokeStyle = this.victimColor === 1 ? '#cccccc' : '#111111'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(0, -shard.size)
+      ctx.lineTo(shard.size * 0.866, shard.size * 0.5)
+      ctx.lineTo(-shard.size * 0.866, shard.size * 0.5)
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // RING 1 (Gold)
+    if (this.ringProgress > 0.01 && this.ringProgress < 1) {
+      const ringR = ss * (0.4 + this.ringProgress * 5)
+      const ringW = ss * 0.14 * (1 - this.ringProgress)
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      ctx.globalAlpha = (1 - this.ringProgress) * 0.9
+      ctx.strokeStyle = '#ffd700'
+      ctx.lineWidth = ringW
+      ctx.shadowColor = '#ffd700'
+      ctx.shadowBlur = 22
+      ctx.beginPath()
+      ctx.arc(victimCx, victimCy, ringR, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // RING 2 (Orange)
+    if (this.ringProgress2 > 0.01 && this.ringProgress2 < 1) {
+      const ringR = ss * (0.3 + this.ringProgress2 * 6)
+      const ringW = ss * 0.10 * (1 - this.ringProgress2)
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      ctx.globalAlpha = (1 - this.ringProgress2) * 0.6
+      ctx.strokeStyle = '#ff8800'
+      ctx.lineWidth = ringW
+      ctx.shadowColor = '#ff8800'
+      ctx.shadowBlur = 18
+      ctx.beginPath()
+      ctx.arc(victimCx, victimCy, ringR, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // Restore zoom
+    if (this.zoom > 1.01) {
+      ctx.restore()
+    }
+
+    return { shakeX: 0, shakeY: 0 }
+  }
+
+  renderChain(ctx, fromX, fromY, toX, toY) {
+    const ss = this.pieceSize
+    const dx = toX - fromX
+    const dy = toY - fromY
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    const angle = Math.atan2(dy, dx)
+    const linkCount = this.chainLinks.length
+    const maxLinksVisible = Math.floor(linkCount * this.chainProgress)
+
+    // Chain color based on knight color
+    const chainColor = this.knightColor === 1 ? '#e8d080' : '#a09060'
+    const chainDark = this.knightColor === 1 ? '#b8a050' : '#706040'
+    const chainLight = this.knightColor === 1 ? '#fff8c0' : '#d0c080'
+
+    // Draw chain links
+    for (let i = 0; i < maxLinksVisible; i++) {
+      const t = i / (linkCount - 1)
+      const linkAlpha = this.chainLinks[i].alpha = this.chainAlpha * Math.min(1, (this.chainProgress - i * 0.02) * 5)
+
+      if (linkAlpha <= 0.01) continue
+
+      const linkX = fromX + dx * t
+      const linkY = fromY + dy * t
+
+      // Link wobble from tension
+      const wobble = Math.sin(this.chainTension * Math.PI * 8 + t * Math.PI * 4) * 3 * (1 - this.chainProgress)
+      const linkRot = angle + wobble * 0.02
+
+      ctx.save()
+      ctx.globalAlpha = linkAlpha
+      ctx.translate(linkX, linkY)
+      ctx.rotate(linkRot)
+
+      // Link dimensions
+      const linkW = ss * 0.22
+      const linkH = ss * 0.12
+      const innerW = linkW * 0.5
+      const innerH = linkH * 0.5
+
+      // Draw solid chain link (oval ring)
+      ctx.beginPath()
+      // Outer ellipse
+      ctx.ellipse(0, 0, linkW, linkH, 0, 0, Math.PI * 2)
+      // Inner ellipse (cutout)
+      ctx.ellipse(0, 0, innerW, innerH, 0, 0, Math.PI * 2, true)
+      ctx.fillStyle = chainColor
+      ctx.fill('evenodd')
+
+      // Highlight on top
+      ctx.beginPath()
+      ctx.ellipse(0, -linkH * 0.2, linkW * 0.7, linkH * 0.3, 0, 0, Math.PI * 2)
+      ctx.fillStyle = chainLight
+      ctx.globalAlpha = linkAlpha * 0.6
+      ctx.fill()
+
+      // Shadow on bottom
+      ctx.beginPath()
+      ctx.ellipse(0, linkH * 0.2, linkW * 0.7, linkH * 0.3, 0, 0, Math.PI * 2)
+      ctx.fillStyle = chainDark
+      ctx.globalAlpha = linkAlpha * 0.5
+      ctx.fill()
+
+      ctx.restore()
+    }
+
+    // Chain connection points (where it attaches to knight and victim)
+    if (this.chainProgress > 0.3) {
+      // At knight (attached to knight's "hand")
+      const knightAttachAlpha = this.chainAlpha * Math.min(1, (this.chainProgress - 0.3) * 3)
+      if (knightAttachAlpha > 0.01) {
+        ctx.save()
+        ctx.globalAlpha = knightAttachAlpha
+        ctx.beginPath()
+        ctx.arc(fromX + ss * 0.5, fromY + ss * 0.3, ss * 0.08, 0, Math.PI * 2)
+        ctx.fillStyle = chainColor
+        ctx.shadowColor = '#ffd700'
+        ctx.shadowBlur = 10
+        ctx.fill()
+        ctx.restore()
+      }
+
+      // At victim (wrapped around)
+      const victimAttachAlpha = this.chainAlpha * Math.min(1, (this.chainProgress - 0.5) * 4)
+      if (victimAttachAlpha > 0.01) {
+        ctx.save()
+        ctx.globalAlpha = victimAttachAlpha
+        // Chain wrapping around victim
+        for (let w = 0; w < 3; w++) {
+          const wrapAngle = angle + Math.PI / 2 + (w - 1) * 0.4
+          const wrapX = toX + ss / 2 + Math.cos(wrapAngle) * ss * 0.4
+          const wrapY = toY + ss / 2 + Math.sin(wrapAngle) * ss * 0.4
+          ctx.beginPath()
+          ctx.arc(wrapX, wrapY, ss * 0.06, 0, Math.PI * 2)
+          ctx.fillStyle = chainColor
+          ctx.shadowColor = '#ffd700'
+          ctx.shadowBlur = 8
+          ctx.fill()
+        }
+        ctx.restore()
+      }
+    }
+  }
+}
+
+/* ================================================================
+   KNIGHT PUNCH EFFECT — Knight punches bishop/knight off the board
+   ================================================================ */
+
+export class KnightPunchEffect {
+  constructor(canvasRenderer, fromX, fromY, toX, toY, pieceSize, knightColor, victimColor, ghostPiece, victimGhostPiece) {
+    this.canvasRenderer = canvasRenderer
+    this.fromX = fromX
+    this.fromY = fromY
+    this.toX = toX
+    this.toY = toY
+    this.pieceSize = pieceSize
+    this.knightColor = knightColor
+    this.victimColor = victimColor
+    this.duration = 1.0
+    this.finished = false
+
+    // Reference to the actual ghost pieces
+    this.gp = ghostPiece
+    this.vgp = victimGhostPiece
+
+    // Initialize ghost pieces
+    if (this.gp) {
+      this.gp.x = fromX
+      this.gp.y = fromY
+      this.gp.rotation = 0
+      this.gp.scaleX = 1
+      this.gp.scaleY = 1
+      this.gp.alpha = 1
+      this.gp.height = 0
+      this.gp.shadowAlpha = 0.15
+      this.gp.trail = []
+    }
+
+    if (this.vgp) {
+      this.vgp.x = toX
+      this.vgp.y = toY
+      this.vgp.rotation = 0
+      this.vgp.scaleX = 1
+      this.vgp.scaleY = 1
+      this.vgp.alpha = 1
+      this.vgp.height = 0
+      this.vgp.shadowAlpha = 0.15
+    }
+
+    // Punch direction (from knight TO victim)
+    const dx = toX - fromX
+    const dy = toY - fromY
+    this.punchAngle = Math.atan2(dy, dx)
+    this.punchDist = Math.sqrt(dx * dx + dy * dy)
+
+    // Fist properties
+    this.fistX = fromX + pieceSize / 2
+    this.fistY = fromY + pieceSize / 2
+    this.fistScale = 0
+    this.fistAlpha = 0
+    this.fistRotation = this.punchAngle
+
+    // Victim launch properties
+    this.victimLaunched = false
+    this.victimVX = 0
+    this.victimVY = 0
+    this.victimRotation = 0
+    this.victimSpinSpeed = 0
+
+    // Impact effects
+    this.impactFlash = 0
+    this.shockwaveProgress = 0
+    this.impactParticles = []
+
+    // Screen shake
+    this.shakeIntensity = 0
+
+    // Colors
+    this.fistColor = knightColor === 1 ? '#ffffff' : '#222222'
+    this.fistOutline = knightColor === 1 ? '#cccccc' : '#000000'
+    this.fistGlow = knightColor === 1 ? '#ffeeaa' : '#ff6600'
+
+    // Generate impact particles
+    this.generateImpactParticles()
+  }
+
+  generateImpactParticles() {
+    this.impactParticles = []
+    const cx = this.toX + this.pieceSize / 2
+    const cy = this.toY + this.pieceSize / 2
+    for (let i = 0; i < 16; i++) {
+      const angle = this.punchAngle + (Math.random() - 0.5) * Math.PI / 2
+      const speed = 200 + Math.random() * 400
+      this.impactParticles.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 50 - Math.random() * 100,
+        size: this.pieceSize * (0.03 + Math.random() * 0.06),
+        alpha: 1,
+        gravity: 300 + Math.random() * 200,
+        color: ['#ffaa00', '#ff8800', '#ffcc00', '#ffffff'][Math.floor(Math.random() * 4)],
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 20
+      })
+    }
+  }
+
+  start() {}
+
+  update(progress) {
+    const p = progress
+    const ss = this.pieceSize
+    const gp = this.gp
+    const vgp = this.vgp
+    const cx = this.toX + ss / 2
+    const cy = this.toY + ss / 2
+
+    // Phase 1: WIND UP (0-15%) - Knight leans back, fist appears
+    if (p < 0.15) {
+      const t = p / 0.15
+      const eased = Easing.easeOutCubic(t)
+
+      // Knight leans back (opposite to punch direction)
+      const leanDist = ss * 0.15 * eased
+      if (gp) {
+        gp.x = this.fromX - Math.cos(this.punchAngle) * leanDist
+        gp.y = this.fromY - Math.sin(this.punchAngle) * leanDist
+        gp.rotation = -this.punchAngle * 0.1 * eased
+        gp.scaleX = 1 + eased * 0.05
+        gp.scaleY = 1 - eased * 0.03
+      }
+
+      // Fist grows at knight position
+      this.fistScale = eased * 0.8
+      this.fistAlpha = eased
+      this.fistX = this.fromX + ss / 2 - Math.cos(this.punchAngle) * leanDist
+      this.fistY = this.fromY + ss / 2 - Math.sin(this.punchAngle) * leanDist
+    }
+
+    // Phase 2: PUNCH FORWARD (15-45%) - Fist shoots toward victim
+    if (p >= 0.15 && p < 0.45) {
+      const t = (p - 0.15) / 0.30
+      const eased = Easing.easeInCubic(t) // Fast acceleration
+
+      // Fist travels to victim
+      const travelDist = this.punchDist + ss * 0.5
+      this.fistX = this.fromX + ss / 2 + Math.cos(this.punchAngle) * travelDist * eased
+      this.fistY = this.fromY + ss / 2 + Math.sin(this.punchAngle) * travelDist * eased
+      this.fistScale = 1.0 + Math.sin(t * Math.PI) * 0.2 // Slight squash on impact
+      this.fistAlpha = 1
+
+      // Knight follows through
+      if (gp) {
+        const followDist = ss * 0.3 * eased
+        gp.x = this.fromX + Math.cos(this.punchAngle) * followDist
+        gp.y = this.fromY + Math.sin(this.punchAngle) * followDist
+        gp.rotation = this.punchAngle * 0.2 * eased
+      }
+    }
+
+    // Phase 3: IMPACT (45-55%) - Fist hits victim, victim launches
+    if (p >= 0.45 && p < 0.55) {
+      const t = (p - 0.45) / 0.10
+      const eased = Easing.easeOutCubic(t)
+
+      // Fist at impact position
+      this.fistX = cx + Math.cos(this.punchAngle) * ss * 0.3
+      this.fistY = cy + Math.sin(this.punchAngle) * ss * 0.3
+      this.fistScale = 1.2 * (1 - t) + 1.0 * t
+      this.fistAlpha = 1 - t * 0.5
+
+      // Impact flash
+      this.impactFlash = Math.sin(t * Math.PI) * 1.5
+
+      // Launch victim at exact impact moment (t=0.5)
+      if (!this.victimLaunched && t >= 0.5) {
+        this.victimLaunched = true
+        const launchSpeed = 800 + Math.random() * 400
+        this.victimVX = Math.cos(this.punchAngle) * launchSpeed
+        this.victimVY = Math.sin(this.punchAngle) * launchSpeed - 200
+        this.victimSpinSpeed = (Math.random() - 0.5) * 30
+
+        // Shockwave
+        this.shockwaveProgress = 0
+      }
+
+      // Screen shake
+      this.shakeIntensity = Math.sin(t * Math.PI) * 15
+
+      // Knight recoil
+      if (gp) {
+        gp.x = this.fromX + Math.cos(this.punchAngle) * ss * 0.3 * (1 - t)
+        gp.y = this.fromY + Math.sin(this.punchAngle) * ss * 0.3 * (1 - t)
+      }
+    }
+
+    // Phase 4: VICTIM FLIES OFF BOARD (55-100%)
+    if (p >= 0.55) {
+      // Fist fades
+      this.fistAlpha = Math.max(0, 1 - (p - 0.55) / 0.15)
+      this.fistScale = 1
+
+      // Shockwave expands
+      if (p < 0.75) {
+        this.shockwaveProgress = (p - 0.55) / 0.20
+      } else {
+        this.shockwaveProgress = 1
+      }
+
+      // Screen shake decays
+      this.shakeIntensity = Math.max(0, 15 * (1 - (p - 0.55) / 0.20))
+
+      // Update victim position - flying off board with gravity
+      if (vgp && this.victimLaunched) {
+        const dt = 1/60
+        this.victimVY += 800 * dt // Gravity
+        vgp.x += this.victimVX * dt
+        vgp.y += this.victimVY * dt
+        this.victimRotation += this.victimSpinSpeed * dt
+        vgp.rotation = this.victimRotation
+        vgp.alpha = Math.max(0, 1 - (p - 0.55) / 0.45) // Fade out as it flies away
+        vgp.scaleX = vgp.alpha
+        vgp.scaleY = vgp.alpha
+      }
+
+      // Knight settles back
+      if (gp) {
+        gp.x = this.fromX + (this.toX - this.fromX) * Math.min(1, (p - 0.55) / 0.25)
+        gp.y = this.fromY + (this.toY - this.fromY) * Math.min(1, (p - 0.55) / 0.25)
+        gp.rotation = 0
+        gp.scaleX = 1
+        gp.scaleY = 1
+      }
+    }
+
+    // Update impact particles
+    for (const part of this.impactParticles) {
+      if (part.alpha <= 0) continue
+      part.vy += part.gravity * 0.016
+      part.x += part.vx * 0.016
+      part.y += part.vy * 0.016
+      part.rotation += part.rotationSpeed * 0.016
+      if (p >= 0.55) {
+        const fadeT = Math.min((p - 0.55) / 0.30, 1)
+        part.alpha = 1 - fadeT
+      }
+    }
+
+    if (p >= 1) this.finished = true
+  }
+
+  render(ctx) {
+    const { width, height } = this.canvasRenderer
+    const ss = this.pieceSize
+    const cx = this.toX + ss / 2
+    const cy = this.toY + ss / 2
+
+    // Impact flash
+    if (this.impactFlash > 0.01) {
+      ctx.save()
+      ctx.globalAlpha = this.impactFlash * 0.3
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
+      ctx.restore()
+    }
+
+    // Shockwave ring at impact point
+    if (this.shockwaveProgress > 0.01 && this.shockwaveProgress < 1) {
+      ctx.save()
+      ctx.globalCompositeOperation = 'screen'
+      const ringR = ss * (0.5 + this.shockwaveProgress * 4)
+      const ringW = ss * 0.15 * (1 - this.shockwaveProgress)
+      ctx.globalAlpha = (1 - this.shockwaveProgress) * 0.8
+      ctx.strokeStyle = this.fistGlow
+      ctx.lineWidth = ringW
+      ctx.shadowColor = this.fistGlow
+      ctx.shadowBlur = 20
+      ctx.beginPath()
+      ctx.arc(cx, cy, ringR, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // FIST - draw the punching fist
+    if (this.fistAlpha > 0.01) {
+      this.renderFist(ctx)
+    }
+
+    // Impact particles
+    for (const part of this.impactParticles) {
+      if (part.alpha <= 0.01) continue
+      ctx.save()
+      ctx.globalAlpha = part.alpha
+      ctx.translate(part.x, part.y)
+      ctx.rotate(part.rotation)
+      ctx.fillStyle = part.color
+      ctx.shadowColor = part.color
+      ctx.shadowBlur = 6
+      ctx.beginPath()
+      ctx.arc(0, 0, part.size, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    return { 
+      shakeX: (Math.random() - 0.5) * this.shakeIntensity,
+      shakeY: (Math.random() - 0.5) * this.shakeIntensity
+    }
+  }
+
+  renderFist(ctx) {
+    const ss = this.pieceSize
+    const scale = this.fistScale
+    const fistSize = ss * 0.5 * scale
+
+    ctx.save()
+    ctx.translate(this.fistX, this.fistY)
+    ctx.rotate(this.fistRotation)
+    ctx.globalAlpha = this.fistAlpha
+
+    // Fist shadow (behind)
+    ctx.save()
+    ctx.translate(fistSize * 0.15, fistSize * 0.2)
+    ctx.globalAlpha = 0.3
+    ctx.fillStyle = '#000000'
+    this.drawFistShape(ctx, fistSize)
+    ctx.restore()
+
+    // Main fist
+    ctx.fillStyle = this.fistColor
+    ctx.strokeStyle = this.fistOutline
+    ctx.lineWidth = 2 * scale
+    this.drawFistShape(ctx, fistSize)
+    ctx.fill()
+    ctx.stroke()
+
+    // Highlight on knuckles
+    ctx.save()
+    ctx.globalAlpha = 0.6
+    ctx.fillStyle = this.fistGlow
+    this.drawFistHighlight(ctx, fistSize)
+    ctx.restore()
+
+    // Wrist/cuff
+    ctx.fillStyle = this.knightColor === 1 ? '#e0e0e0' : '#444444'
+    ctx.beginPath()
+    ctx.rect(-fistSize * 0.5, fistSize * 0.4, fistSize, fistSize * 0.3)
+    ctx.fill()
+    ctx.stroke()
+
+    ctx.restore()
+  }
+
+  drawFistShape(ctx, size) {
+    // Draw a cartoon-style clenched fist
+    const w = size
+    const h = size * 1.2
+
+    ctx.beginPath()
+    // Bottom of fist (curved)
+    ctx.moveTo(-w * 0.4, h * 0.6)
+    ctx.quadraticCurveTo(-w * 0.4, h * 0.8, 0, h * 0.8)
+    ctx.quadraticCurveTo(w * 0.4, h * 0.8, w * 0.4, h * 0.6)
+
+    // Knuckles (4 bumps)
+    const knuckleW = w * 0.18
+    const knuckleH = h * 0.15
+    for (let i = 0; i < 4; i++) {
+      const x = -w * 0.3 + i * knuckleW * 1.1
+      ctx.quadraticCurveTo(x, h * 0.6, x + knuckleW * 0.5, h * 0.45)
+      ctx.quadraticCurveTo(x + knuckleW, h * 0.6, x + knuckleW, h * 0.45)
+    }
+    ctx.lineTo(w * 0.4, h * 0.6)
+
+    // Thumb side
+    ctx.quadraticCurveTo(w * 0.5, h * 0.3, w * 0.35, 0)
+    ctx.quadraticCurveTo(w * 0.2, -h * 0.1, 0, -h * 0.1)
+    ctx.quadraticCurveTo(-w * 0.2, -h * 0.1, -w * 0.35, 0)
+    ctx.quadraticCurveTo(-w * 0.5, h * 0.3, -w * 0.4, h * 0.6)
+
+    ctx.closePath()
+  }
+
+  drawFistHighlight(ctx, size) {
+    // Highlight on top knuckles
+    const w = size
+    const h = size * 1.2
+
+    ctx.beginPath()
+    for (let i = 0; i < 4; i++) {
+      const x = -w * 0.3 + i * w * 0.18 * 1.1
+      ctx.ellipse(x + w * 0.09, h * 0.45, w * 0.07, h * 0.05, 0, 0, Math.PI * 2)
+    }
+    ctx.fill()
   }
 }
 

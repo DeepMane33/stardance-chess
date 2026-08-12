@@ -76,20 +76,54 @@ export class Renderer {
 
     const pr = this.pieceRenderer
 
+    // SAFETY NET: Detect and recover from corrupted animation state
+    // If moveAnim exists but ghostPiece is missing or invisible, or vice versa,
+    // the state is corrupted - clear it and draw all pieces normally.
+    const hasGhost = pr.ghostPiece && pr.ghostPiece.alpha > 0.01
+    const hasMoveAnim = !!pr.moveAnim
+    if (hasMoveAnim !== hasGhost) {
+      // Corrupted state: one exists without the other
+      console.warn('[Renderer] Corrupted animation state detected, recovering:', {
+        hasGhost,
+        hasMoveAnim,
+        ghostAlpha: pr.ghostPiece?.alpha,
+        moveAnim: pr.moveAnim
+      })
+      pr.ghostPiece = null
+      pr.victimGhostPiece = null
+      pr.moveAnim = null
+    }
+
     // During animations, skip the source square (ghost covers it)
     // For captures, also skip destination (both pieces hidden, ghost handles visuals)
     // SAFETY: Only hide squares if there's an ACTIVE ghost piece rendering them.
     // This prevents pieces from permanently vanishing if animation state gets corrupted.
     const ghostActive = pr.ghostPiece && pr.ghostPiece.alpha > 0.01 && pr.moveAnim
 
+    // Special handling for QUEEN_SONIDO: during the "silent gap" the ghost is invisible
+    // at the source, but the queen is already at the destination in the engine.
+    // Don't hide the destination square so the queen doesn't vanish.
+    const isQueenSonido = captureEffects?.tier === CaptureTier.QUEEN_SONIDO
+
+    // Special handling for KNIGHT_CHAIN_CAPTURE: during blackout, hide ALL static pieces
+    // Only the knight ghost and victim ghost should be visible
+    const isKnightChainCapture = captureEffects?.tier === CaptureTier.KNIGHT_CHAIN_CAPTURE
+    const knightChainBlackout = isKnightChainCapture && captureEffects?.effect?.blackoutAlpha > 0.01
+
     for (let sq = 0; sq < 64; sq++) {
       const piece = board[sq]
       const color = colors[sq]
       if (piece === 0) continue
 
+      // KNIGHT_CHAIN_CAPTURE: During blackout, hide ALL static pieces
+      // Only the animated knight ghost and victim ghost will be drawn
+      if (knightChainBlackout) continue
+
       // Hide engine pieces at from/to only when a ghost is actively animating them
       if (ghostActive && pr.moveAnim) {
-        if (sq === pr.moveAnim.fromSq || sq === pr.moveAnim.toSq) continue
+        if (sq === pr.moveAnim.fromSq) continue
+        // For QUEEN_SONIDO, don't hide destination - queen is already there
+        if (!isQueenSonido && sq === pr.moveAnim.toSq) continue
       }
 
       const { file, rank } = this.canvasRenderer.squareToCoord(sq, this.boardRenderer.boardAppearance.orientation)

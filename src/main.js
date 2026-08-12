@@ -353,6 +353,7 @@ class Game {
             console.warn('Player animation timed out, continuing anyway')
           }
         }
+        this.animationManager?.cancelAll()
         this.makeBotMove()
       }
     })
@@ -491,6 +492,8 @@ class Game {
       this.updateHUD()
       this.updateMoveList()
 
+      this.animationManager?.cancelAll()
+
       let botAnimPromise
       if (isCapture && animPiece !== 0 && animColor !== 0) {
         botAnimPromise = this.animationManager.animateCapture({
@@ -579,6 +582,8 @@ class Game {
     this.updateBoardAfterMove(fbResult.move)
     this.updateHUD()
     this.updateMoveList()
+
+    this.animationManager?.cancelAll()
 
     let botAnimPromise
     if (isCapture && animPiece !== 0 && animColor !== 0) {
