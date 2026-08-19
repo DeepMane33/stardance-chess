@@ -79,7 +79,11 @@ export class Renderer {
     // SAFETY NET: Detect and recover from corrupted animation state
     // If moveAnim exists but ghostPiece is missing or invisible, or vice versa,
     // the state is corrupted - clear it and draw all pieces normally.
-    const hasGhost = pr.ghostPiece && pr.ghostPiece.alpha > 0.01
+    // Use Boolean() coercion so that null/undefined/0 falsey values compare as equal
+    // (the original `hasMoveAnim !== hasGhost` falsely fired whenever ghostPiece
+    // was null and moveAnim was false, both "no animation" states, spamming "corrupted"
+    // warnings and clearing valid state).
+    const hasGhost = !!(pr.ghostPiece && pr.ghostPiece.alpha > 0.01)
     const hasMoveAnim = !!pr.moveAnim
     if (hasMoveAnim !== hasGhost) {
       // Corrupted state: one exists without the other
@@ -106,9 +110,15 @@ export class Renderer {
     const isQueenSonido = captureEffects?.tier === CaptureTier.QUEEN_SONIDO
 
     // Special handling for KNIGHT_CHAIN_CAPTURE: during blackout, hide ALL static pieces
-    // Only the knight ghost and victim ghost should be visible
+    // Only the knight ghost and victim ghost should be visible.
+    // SAFETY: only trust blackoutAlpha if the effect is STILL animating. A stale
+    // reference to a finished/interrupted effect could freeze blackoutAlpha at 1
+    // and permanently vanish every piece on the board.
     const isKnightChainCapture = captureEffects?.tier === CaptureTier.KNIGHT_CHAIN_CAPTURE
-    const knightChainBlackout = isKnightChainCapture && captureEffects?.effect?.blackoutAlpha > 0.01
+    const effectFinished = !!captureEffects?.effect?.finished
+    const knightChainBlackout = isKnightChainCapture
+      && !effectFinished
+      && captureEffects?.effect?.blackoutAlpha > 0.01
 
     for (let sq = 0; sq < 64; sq++) {
       const piece = board[sq]

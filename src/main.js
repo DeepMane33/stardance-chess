@@ -343,6 +343,8 @@ class Game {
       // The clock is already on the correct side after the previous move completed
 
       if (this.gameMode === 'bot' && this.engine.getTurn() !== this.playerColor && !this.engine.getGameOver()) {
+        // Wait for the player's animation to finish (with a safety timeout) so the
+        // bot's move doesn't cancel it mid-flight. Mirrors makeBotMove() behavior.
         if (animationPromise) {
           try {
             await Promise.race([
@@ -353,7 +355,6 @@ class Game {
             console.warn('Player animation timed out, continuing anyway')
           }
         }
-        this.animationManager?.cancelAll()
         this.makeBotMove()
       }
     })
@@ -470,7 +471,7 @@ class Game {
       const isCapture = pos.board[toSq] !== 0
       const orientation = this.renderer.boardRenderer.boardAppearance.orientation
 
-      const result = this.engine.attemptMove(fromAlg, toAlg, promoPiece)
+      const result = this.engine.attemptMove(fromSq, toSq, promoPiece)
 
       if (!result.success) {
         this.botFailures = (this.botFailures || 0) + 1
@@ -515,7 +516,7 @@ class Game {
         try {
           await Promise.race([
             botAnimPromise,
-            new Promise(resolve => setTimeout(resolve, 2000))
+            new Promise(resolve => setTimeout(resolve, 500))
           ])
         } catch (e) {
           // Animation timeout, continue
@@ -605,7 +606,7 @@ class Game {
       try {
         await Promise.race([
           botAnimPromise,
-          new Promise(resolve => setTimeout(resolve, 2000))
+          new Promise(resolve => setTimeout(resolve, 500))
         ])
       } catch (e) {
         // Animation timeout, continue

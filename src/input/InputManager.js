@@ -131,6 +131,10 @@ export class InputManager extends EventBus {
     // Clear any leftover ghost pieces from previous animations
     this.renderer.pieceRenderer.ghostPiece = null
     this.renderer.pieceRenderer.victimGhostPiece = null
+    // Also drop any stale moveAnim left over from a previous move; without this,
+    // the engine state changes BEFORE the new animation sets its own moveAnim,
+    // and a stale moveAnim can briefly hide the wrong squares during render frames.
+    this.renderer.pieceRenderer.moveAnim = null
 
     // Execute engine move first
     let result

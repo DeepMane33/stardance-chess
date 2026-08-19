@@ -63,7 +63,17 @@ export class AnimationManager {
   getTrails() { return this.trails }
 
   getCaptureEffects() {
+    // Defensive: never hand the renderer a capture effect that's finished or whose
+    // owning animation has been superseded. A stale reference (e.g. an interrupted
+    // KnightChainCaptureEffect with blackoutAlpha frozen at 1) used to make the
+    // renderer permanently hide EVERY piece on the board.
     if (!this.captureEffect) return null
+    if (this.captureEffect.finished) {
+      // Animation is done — drop the reference so the next frame gets null
+      this.captureEffect = null
+      this.captureTier = null
+      return null
+    }
     return {
       tier: this.captureTier,
       effect: this.captureEffect,
@@ -99,6 +109,10 @@ export class AnimationManager {
       this.ghostPieces = []
       this.pieceRenderer.ghostPiece = null
       this.pieceRenderer.victimGhostPiece = null
+      // Null any stale capture state from a previous/interrupted capture so the
+      // renderer doesn't keep hiding pieces (e.g. leftover KnightChain blackoutAlpha).
+      this.captureEffect = null
+      this.captureTier = null
 
       const gp = new GhostPiece(this.pieceRenderer, piece, color, fromP.x, fromP.y, fromP.size)
       gp.targetX = toP.x
@@ -207,7 +221,10 @@ export class AnimationManager {
             requestAnimationFrame(settleAnim)
           } else {
             // A newer animation owns the shared state; just resolve quietly.
-            gp.alpha = 0; gp.isMoving = false
+            // Defensive: never leave a stale ghostPiece visible (would cause stuck-invisible pieces).
+            gp.alpha = 0
+            gp.isMoving = false
+            if (this.pieceRenderer.ghostPiece === gp) this.pieceRenderer.ghostPiece = null
             resolve()
           }
         }
@@ -274,6 +291,15 @@ export class AnimationManager {
             gp, this.pieceRenderer.victimGhostPiece
           )
           break
+        case CaptureTier.QUEEN_SONIDO: {
+          const sdx = toP.x - fromP.x;
+          const sdy = toP.y - fromP.y;
+          this.captureEffect = new QueenSonidoEffect(
+            this.canvasRenderer, cx, cy, fromP.x + fromP.size/2, fromP.y + fromP.size/2,
+            fromP.size, victimColor, Math.atan2(sdy, sdx)
+          );
+          break;
+        }
         case CaptureTier.QUEEN_SLASH:
           // Compute attack angle from attacker center to victim center
           const dx = toP.x - fromP.x
@@ -281,11 +307,6 @@ export class AnimationManager {
           const attackAngle = Math.atan2(dy, dx)
           this.captureEffect = new QueenRealitySlashEffect(
             this.canvasRenderer, cx, cy, fromP.size, victimColor, attackAngle
-          )
-          break
-        case CaptureTier.QUEEN_SONIDO:
-          this.captureEffect = new QueenSonidoEffect(
-            this.canvasRenderer, cx, cy, fromP.x, fromP.y, fromP.size, victimColor
           )
           break
         case CaptureTier.ROOK_PATH:
@@ -327,6 +348,12 @@ export class AnimationManager {
       if (this.captureEffect && this.captureEffect.start) {
         this.captureEffect.start()
       }
+
+      // Snapshot the effect instance we created so the orphan branch can tell
+      // whether it still owns `this.captureEffect` (vs. a newer animation having
+      // replaced it). Without this, an interrupted KnightChainCaptureEffect could
+      // leak its frozen blackoutAlpha and hide every piece on the board forever.
+      const localEffect = this.captureEffect
 
       this._impactTriggered = false
       const effectDuration = (this.captureEffect.duration || 1.0) * 1000
@@ -403,6 +430,19 @@ export class AnimationManager {
             this.pieceRenderer.victimGhostPiece = null
             this.captureEffect = null
             this.captureTier = null
+          } else {
+            // Defensive: orphaned capture (superseded by cancelAll or a newer anim).
+            // Clear any references to ourselves so the renderer can't pick up a dead ghost
+            // OR a frozen-in-time captureEffect (e.g. blackoutAlpha stuck at 1 → pieces vanish).
+            gp.alpha = 0
+            if (this.pieceRenderer.ghostPiece === gp) this.pieceRenderer.ghostPiece = null
+            if (this.pieceRenderer.victimGhostPiece && this.pieceRenderer.victimGhostPiece.alpha === gp.alpha) {
+              this.pieceRenderer.victimGhostPiece = null
+            }
+            if (this.captureEffect === localEffect) {
+              this.captureEffect = null
+              this.captureTier = null
+            }
           }
           resolve()
         }
